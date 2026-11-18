@@ -5,6 +5,19 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+default = ["spice", "hspice", "xyce", "spectre", "spectre_spice", "vams"]
+spice = []
+hspice = ["spice"]
+xyce = ["spice"]
+spectre = []
+spectre_spice = ["spice", "spectre"]
+vams = []
+
+[[test]]
+name = "parity"
+required-features = ["spice", "hspice", "xyce", "spectre", "spectre_spice", "vams"]
+
 [dependencies]
 oxymorph-schema = { path = "../oxymorph-schema" }
 lark-rs.workspace = true
