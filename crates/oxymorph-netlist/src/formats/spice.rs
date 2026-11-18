@@ -1154,7 +1154,7 @@ pub fn write_spice(circuit: &Circuit) -> String {
             let temps = sim
                 .temperatures
                 .iter()
-                .map(|t| python_g(*t))
+                .map(|t| format!("{t:?}"))
                 .collect::<Vec<_>>()
                 .join(" ");
             lines.push(format!(".temp {temps}"));

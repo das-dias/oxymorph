@@ -10,3 +10,6 @@ oxymorph-schema = { path = "../oxymorph-schema" }
 lark-rs.workspace = true
 regex.workspace = true
 indexmap.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

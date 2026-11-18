@@ -700,9 +700,42 @@ pub fn parse_vams(text: &str) -> Result<Circuit, Error> {
     let pre = preprocess_vams(text);
     let tree = with_engine(|e| e.parse(&pre.text))?;
     let mut t = VamsTransformer::new(pre.analog_blocks);
-    match t.transform(&tree) {
-        Item::Circuit(c) => Ok(c),
-        _ => Err(Error::Validation("vams transform did not produce a circuit".into())),
+    let circuit = match t.transform(&tree) {
+        Item::Circuit(c) => c,
+        _ => {
+            return Err(Error::Validation(
+                "vams transform did not produce a circuit".into(),
+            ))
+        }
+    };
+
+    let mut directives: Vec<Directive> = Vec::new();
+    for (kind_str, value) in &pre.directives {
+        let kind = match kind_str.as_str() {
+            "include" => DirectiveKind::Include,
+            "define" => DirectiveKind::Define,
+            "timescale" => DirectiveKind::Timescale,
+            _ => DirectiveKind::Unspecified,
+        };
+        let value = if kind == DirectiveKind::Include {
+            value.trim_matches(|c| c == '"' || c == '\'').to_string()
+        } else {
+            value.clone()
+        };
+        directives.push(Directive {
+            kind,
+            value,
+            ..Default::default()
+        });
+    }
+
+    if directives.is_empty() {
+        Ok(circuit)
+    } else {
+        Ok(Circuit {
+            directives,
+            ..circuit
+        })
     }
 }
 

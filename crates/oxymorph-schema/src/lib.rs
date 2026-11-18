@@ -5,12 +5,12 @@
 //! JSON/YAML field names, enum integer values and defaults match Pydantic's
 //! `model_dump_json()` / `model_dump()` exactly, which is the parity oracle.
 
-use std::collections::BTreeMap;
+use indexmap::IndexMap;
 
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
-pub type Properties = BTreeMap<String, String>;
+pub type Properties = IndexMap<String, String>;
 
 // ======================================================================
 // Enums (serialized as their integer values, like Pydantic IntEnum)
@@ -136,7 +136,7 @@ pub struct ModelReference {
     #[serde(default)]
     pub model_interface_name: String,
     #[serde(default)]
-    pub arguments: BTreeMap<String, ParameterValue>,
+    pub arguments: IndexMap<String, ParameterValue>,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
@@ -163,7 +163,7 @@ impl ParameterValue {
             prefixed_value: None,
             model_ref: Some(ModelReference {
                 model_interface_name: model_interface_name.into(),
-                arguments: BTreeMap::new(),
+                arguments: IndexMap::new(),
             }),
         }
     }
@@ -438,7 +438,7 @@ pub struct Circuit {
     #[serde(default)]
     pub simulation: Option<Simulation>,
     #[serde(default)]
-    pub libraries: BTreeMap<String, ExternalLibrary>,
+    pub libraries: IndexMap<String, ExternalLibrary>,
 }
 
 impl Circuit {
