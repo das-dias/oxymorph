@@ -12,7 +12,6 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDict};
 
-
 fn convert_params(objs: Option<Vec<Bound<'_, PyAny>>>) -> PyResult<Vec<xs::Parameter>> {
     let mut out: Vec<xs::Parameter> = Vec::new();
     if let Some(list) = objs {
@@ -235,10 +234,7 @@ pub struct ModelReference(pub xs::ModelReference);
 impl ModelReference {
     #[new]
     #[pyo3(signature = (model_interface_name = String::new(), arguments = None))]
-    fn new(
-        model_interface_name: String,
-        arguments: Option<Bound<'_, PyDict>>,
-    ) -> PyResult<Self> {
+    fn new(model_interface_name: String, arguments: Option<Bound<'_, PyDict>>) -> PyResult<Self> {
         let mut args = IndexMap::new();
         if let Some(a) = arguments {
             for (k, v) in a.iter() {
@@ -600,6 +596,10 @@ impl Module {
     fn connections(&self) -> Vec<Connection> {
         self.0.connections.iter().cloned().map(Connection).collect()
     }
+    #[getter]
+    fn buses(&self) -> Vec<Bus> {
+        self.0.buses.iter().cloned().map(Bus).collect()
+    }
 }
 
 #[pyclass(module = "oxymorph")]
@@ -703,7 +703,9 @@ impl Circuit {
     }
 
     fn to_json(&self) -> PyResult<String> {
-        self.0.to_json().map_err(|e| PyValueError::new_err(e.to_string()))
+        self.0
+            .to_json()
+            .map_err(|e| PyValueError::new_err(e.to_string()))
     }
     fn to_json_pretty(&self) -> PyResult<String> {
         self.0
@@ -711,7 +713,9 @@ impl Circuit {
             .map_err(|e| PyValueError::new_err(e.to_string()))
     }
     fn to_yaml(&self) -> PyResult<String> {
-        self.0.to_yaml().map_err(|e| PyValueError::new_err(e.to_string()))
+        self.0
+            .to_yaml()
+            .map_err(|e| PyValueError::new_err(e.to_string()))
     }
     fn to_proto_bytes<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
         PyBytes::new(py, &self.0.to_proto_bytes())
@@ -761,12 +765,241 @@ impl Circuit {
         self.0.directives.iter().cloned().map(Directive).collect()
     }
     #[getter]
+    fn simulation(&self) -> Option<Simulation> {
+        self.0.simulation.clone().map(Simulation)
+    }
+    #[getter]
     fn properties(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
         to_pydict(py, &self.0.properties)
     }
 
     fn __eq__(&self, other: &Circuit) -> bool {
         self.0 == other.0
+    }
+}
+
+// ==========================================================================
+// Simulation types
+// ==========================================================================
+
+#[pyclass(module = "oxymorph")]
+#[derive(Clone)]
+pub struct InitialCondition(pub xs::InitialCondition);
+
+#[pymethods]
+impl InitialCondition {
+    #[new]
+    #[pyo3(signature = (conditions = None))]
+    fn new(conditions: Option<HashMap<String, String>>) -> Self {
+        InitialCondition(xs::InitialCondition {
+            conditions: props(conditions),
+        })
+    }
+    #[getter]
+    fn conditions(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+        to_pydict(py, &self.0.conditions)
+    }
+}
+
+#[pyclass(module = "oxymorph")]
+#[derive(Clone)]
+pub struct Measurement(pub xs::Measurement);
+
+#[pymethods]
+impl Measurement {
+    #[new]
+    #[pyo3(signature = (name = String::new(), analysis_type = String::new(), body = String::new()))]
+    fn new(name: String, analysis_type: String, body: String) -> Self {
+        Measurement(xs::Measurement {
+            name,
+            analysis_type,
+            body,
+        })
+    }
+    #[getter]
+    fn name(&self) -> &str {
+        &self.0.name
+    }
+    #[getter]
+    fn analysis_type(&self) -> &str {
+        &self.0.analysis_type
+    }
+    #[getter]
+    fn body(&self) -> &str {
+        &self.0.body
+    }
+}
+
+#[pyclass(module = "oxymorph")]
+#[derive(Clone)]
+pub struct OutputRequest(pub xs::OutputRequest);
+
+#[pymethods]
+impl OutputRequest {
+    #[new]
+    #[pyo3(signature = (kind = 0, analysis_type = String::new(), variables = None))]
+    fn new(kind: i32, analysis_type: String, variables: Option<Vec<String>>) -> Self {
+        OutputRequest(xs::OutputRequest {
+            kind: okind(kind),
+            analysis_type,
+            variables: variables.unwrap_or_default(),
+        })
+    }
+    #[getter]
+    fn kind(&self) -> i32 {
+        self.0.kind as i32
+    }
+    #[getter]
+    fn analysis_type(&self) -> &str {
+        &self.0.analysis_type
+    }
+    #[getter]
+    fn variables(&self) -> Vec<String> {
+        self.0.variables.clone()
+    }
+}
+
+fn akind(v: i32) -> xs::AnalysisKind {
+    match v {
+        1 => xs::AnalysisKind::Op,
+        2 => xs::AnalysisKind::Dc,
+        3 => xs::AnalysisKind::Ac,
+        4 => xs::AnalysisKind::Tran,
+        5 => xs::AnalysisKind::Noise,
+        6 => xs::AnalysisKind::Tf,
+        7 => xs::AnalysisKind::Sens,
+        8 => xs::AnalysisKind::Pz,
+        9 => xs::AnalysisKind::Disto,
+        10 => xs::AnalysisKind::Four,
+        11 => xs::AnalysisKind::Fft,
+        _ => xs::AnalysisKind::Unspecified,
+    }
+}
+fn okind(v: i32) -> xs::OutputRequestKind {
+    match v {
+        1 => xs::OutputRequestKind::Print,
+        2 => xs::OutputRequestKind::Plot,
+        3 => xs::OutputRequestKind::Probe,
+        4 => xs::OutputRequestKind::Save,
+        _ => xs::OutputRequestKind::Unspecified,
+    }
+}
+
+#[pyclass(module = "oxymorph")]
+#[derive(Clone)]
+pub struct Analysis(pub xs::Analysis);
+
+#[pymethods]
+impl Analysis {
+    #[new]
+    #[pyo3(signature = (kind = 0, name = String::new(), arguments = None, options = None))]
+    fn new(
+        kind: i32,
+        name: String,
+        arguments: Option<Vec<String>>,
+        options: Option<HashMap<String, String>>,
+    ) -> Self {
+        Analysis(xs::Analysis {
+            kind: akind(kind),
+            name,
+            arguments: arguments.unwrap_or_default(),
+            options: props(options),
+        })
+    }
+    #[getter]
+    fn kind(&self) -> i32 {
+        self.0.kind as i32
+    }
+    #[getter]
+    fn name(&self) -> &str {
+        &self.0.name
+    }
+    #[getter]
+    fn arguments(&self) -> Vec<String> {
+        self.0.arguments.clone()
+    }
+}
+
+#[pyclass(module = "oxymorph")]
+#[derive(Clone)]
+pub struct Simulation(pub xs::Simulation);
+
+#[pymethods]
+impl Simulation {
+    #[new]
+    #[pyo3(signature = ())]
+    fn new() -> Self {
+        Simulation(xs::Simulation::default())
+    }
+    #[getter]
+    fn analyses(&self) -> Vec<Analysis> {
+        self.0.analyses.iter().cloned().map(Analysis).collect()
+    }
+    #[getter]
+    fn output_requests(&self) -> Vec<OutputRequest> {
+        self.0
+            .output_requests
+            .iter()
+            .cloned()
+            .map(OutputRequest)
+            .collect()
+    }
+    #[getter]
+    fn measurements(&self) -> Vec<Measurement> {
+        self.0
+            .measurements
+            .iter()
+            .cloned()
+            .map(Measurement)
+            .collect()
+    }
+    #[getter]
+    fn initial_conditions(&self) -> Option<InitialCondition> {
+        self.0.initial_conditions.clone().map(InitialCondition)
+    }
+    #[getter]
+    fn node_sets(&self) -> Option<InitialCondition> {
+        self.0.node_sets.clone().map(InitialCondition)
+    }
+    #[getter]
+    fn temperatures(&self) -> Vec<f64> {
+        self.0.temperatures.clone()
+    }
+}
+
+#[pyclass(module = "oxymorph")]
+#[derive(Clone)]
+pub struct Bus(pub xs::Bus);
+
+#[pymethods]
+impl Bus {
+    #[new]
+    #[pyo3(signature = (name, width = 0, domain = 0, properties = None))]
+    fn new(
+        name: String,
+        width: u32,
+        domain: i32,
+        properties: Option<HashMap<String, String>>,
+    ) -> Self {
+        Bus(xs::Bus {
+            name,
+            width,
+            domain: sdom(domain),
+            properties: props(properties),
+            ..Default::default()
+        })
+    }
+    #[getter]
+    fn name(&self) -> &str {
+        &self.0.name
+    }
+    #[getter]
+    fn width(&self) -> u32 {
+        self.0.width
+    }
+    #[getter]
+    fn connections(&self) -> Vec<Connection> {
+        self.0.connections.iter().cloned().map(Connection).collect()
     }
 }
 
@@ -1014,6 +1247,12 @@ fn oxymorph(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ExternalLibrary>()?;
     m.add_class::<PortDirection>()?;
     m.add_class::<SignalDomain>()?;
+    m.add_class::<Bus>()?;
+    m.add_class::<Simulation>()?;
+    m.add_class::<Analysis>()?;
+    m.add_class::<OutputRequest>()?;
+    m.add_class::<Measurement>()?;
+    m.add_class::<InitialCondition>()?;
 
     m.add_function(wrap_pyfunction!(circuit, m)?)?;
     m.add_function(wrap_pyfunction!(module, m)?)?;
