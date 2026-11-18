@@ -4,35 +4,122 @@ Living plan for reaching parity. Sequencing, not commitment — updated as the
 port progresses. Policies live in `decisions/`, what the code does lives in
 `specs/`; this is the "what's next".
 
-Related: `specs/parity.md` (definition of done), `decisions/0002` (parser
-engine, gated on the spike), `decisions/0003` (crate layout).
+Related: `specs/parity.md` (the equivalence contract), `decisions/0002` (parser
+engine), `decisions/0003` (crate layout), `decisions/0004` (bug-for-bug parity).
 
-## Definition of done (per format/direction pair)
+## Definition of done
 
-A pair is done when R1 in `specs/parity.md` holds for it against the committed
-corpus, with no unexplained differential-harness deltas.
+A surface (and, for parse/write, each format) is done when its `R1` requirement
+in `specs/parity.md` holds against the committed corpus, with no unexplained
+differential-harness deltas.
+
+## Testing plan — how equivalence is proven
+
+The governing principle: **the Python implementation is the oracle, its verdict
+is captured once into committed fixtures, and the Rust tests assert against those
+fixtures.** Core CI never runs Python, `maturin` or WASM; the live-Python jobs
+are separate and non-blocking.
+
+### T0. Oracle extraction (one-time per re-vendor)
+
+`tools/extract_oracle.py`, run with `uv` inside `vendor/morphnet`:
+
+1. **Collect inputs** from upstream (`specs/parity.md` R2.1):
+   - committed netlists `tests/netlists/{spectre,hspice,vams}/*`;
+   - expected-IR YAML `tests/netlists/*.yaml`;
+   - inline netlists in `tests/test_*.py`, extracted by **AST walk** (find string
+     constants passed to `parse_*`/`write_*`, or assigned and then used), keyed by
+     test name;
+   - `examples/*.py` builder scripts.
+2. **Run the oracle** (upstream Python) per case and record, as canonical output:
+   - preprocess result (cleaned text, directives, analog blocks);
+   - parsed IR as **deterministic protobuf bytes** (`to_proto_bytes`) and as
+     canonical JSON/YAML;
+   - writer output for every format from each IR;
+   - round-trip results (`write(parse(text))`, stability, `parse(write(ir))`);
+   - for malformed cases, the exception kind and position.
+3. **Emit** `tests/corpus/**` fixtures plus `tests/corpus/manifest.json` with
+   provenance: upstream commit SHA, source path, test name, and generator version.
+
+Re-run only on re-vendor or when extending the corpus; the freestanding script
+records the upstream commit it read so fixtures are auditable.
+
+### T1. Golden-fixture tiers (required, offline)
+
+Mirroring `specs/parity.md` R1, each tier is a Rust test that reads committed
+fixtures:
+
+| Tier | Asserts | Comparison |
+|---|---|---|
+| L0 helpers | `value_utils`, `net_utils`, `simulation_data` (R1.5) | exact value equality |
+| L1 preprocess | `preprocess_*` (R1.4) | string/record equality |
+| L2 parse | text → IR (R1.1) | decoded-message equality on canonical protobuf |
+| L3 write | IR → text (R1.2) | **byte-exact** vs golden netlists; canonical otherwise |
+| L4 round-trip | text → IR → text (R1.3) | stability + oracle match |
+| L5 builder | `_api` construction → IR (R1.6) | message equality |
+| L6 interchange | proto encode/decode + JSON/YAML (R1.7) | message- and shape-equal |
+| L7 errors | malformed input (R1.8) | error kind + position |
+
+L0/L1 land first: they are pure, cheap and de-risk the schema and engine before
+any transformer exists.
+
+### T2. Differential harness (non-blocking)
+
+A CI job that builds the Rust side and runs the vendored Python live on the same
+inputs, diffing outputs directly (parity R3.2):
+
+- replays the whole corpus, so fixture drift is caught;
+- **generates** inputs the corpus lacks — a netlist generator plus mutation of
+  corpus inputs — and minimizes any divergence to a small repro;
+- reports deltas against the R4 allow-list; any new delta is a bug (ours, or a
+  new upstream issue to log).
+
+A minimizer output is the preferred form for a new corpus case or an R4 row.
+
+### T3. Upstream test replay (non-blocking, stretch)
+
+Run upstream's own `pytest` suite against `oxymorph-python` through a thin
+`morphnet`-shaped shim, turning upstream's assertions into an oracle we did not
+write (parity R3.4). Tally pass/xfail into the coverage ledger. Optional because
+it depends on upstream's private API shape and the not-API-compatible decision.
+
+### T4. Coverage ledger
+
+`tools/extract_oracle.py` also emits the R5 table in `specs/parity.md`, mapping
+every upstream test function to a corpus case and a Rust test, so uncovered
+behavior is visible rather than assumed absent.
+
+### CI gating
+
+- **Required for merge:** `cargo fmt --check`, `clippy -D warnings`,
+  `cargo test --workspace` (T1 tiers against committed fixtures), the crate
+  boundary tests, and the per-format feature builds.
+- **Non-blocking:** T2 differential harness, T3 upstream replay, fuzzing.
 
 ## Phase 0 — Foundations
 
 - [ ] Workspace skeleton per `decisions/0003` (crate-only, no root `src/`).
 - [ ] `oxymorph-schema`: prost codegen from the vendored `.proto`, IR types,
       alias maps, oneof/union validation, JSON/YAML shape (`decisions/0005`).
-- [ ] Parity-harness scaffolding: corpus extraction from the vendored
-      tests/`examples/`, canonical protobuf comparison, known-issue allow-list.
-- [x] Parser spike (`decisions/0002` acceptance gate) — **done, falsified the
-      original decision.** Result: upstream mixes engines (LALR for spectre/vams,
-      Earley+resolve for spice/hspice/xyce); `include_lark!`/standalone cover
-      LALR + basic lexer only and mis-lex `spectre`; lark-rs **in-process** with
-      per-format config matches Python 21/21. `decisions/0002` revised to
-      lark-rs in-process and **decided**.
+- [x] Parser spike (`decisions/0002`) — **done, falsified the original decision.**
+      Upstream mixes engines (LALR for spectre/vams, Earley+resolve for
+      spice/hspice/xyce); `include_lark!`/standalone cover LALR + basic lexer
+      only and mis-lex `spectre`; lark-rs **in-process** with per-format config
+      matches Python 21/21. `decisions/0002` revised to lark-rs in-process and
+      **decided**.
+- [ ] `tools/extract_oracle.py` (T0) and the `tests/corpus/` fixtures.
+- [ ] T1 harness for L0 (helpers) and L1 (preprocess); wire into `cargo test`.
 - [ ] Port the per-format preprocessing (`preprocess_*.py`: comment stripping,
       continuations, semicolon injection, vams directive/analog extraction).
+- [ ] Error model and the parser trait (`specs/parsing.md`), mapping `lark_rs`
+      errors to our structured type.
 
 ## Phase 1 — First vertical slice
 
-- [ ] `spectre` parse (smallest independent grammar) end-to-end to IR.
-- [ ] `vams` write (reproduces the README quickstart) and its round-trip.
-- [ ] Wire the slice into the differential harness.
+- [ ] `spectre` parse (smallest independent grammar) end-to-end to IR (T1 L2/L7).
+- [ ] `vams` write (reproduces the README quickstart) and its round-trip
+      (T1 L3/L4).
+- [ ] Add the slice to the T2 differential harness.
 
 ## Phase 2 — SPICE family
 
@@ -49,6 +136,7 @@ unit effort):
 - [ ] `vams` parse (longest transformer).
 - [ ] Remaining writers for every format.
 - [ ] `spectre` write.
+- [ ] Builder API (`_api`) parity (T1 L5) and interchange parity (T1 L6).
 
 ## Phase 4 — Bindings and targets
 
@@ -56,12 +144,13 @@ unit effort):
       `morphnet`, not API-compatible).
 - [ ] `oxymorph-cli` (if wanted).
 - [ ] `oxymorph-wasm` (if wanted).
+- [ ] T3 upstream test replay against the binding.
 
 ## Phase 5 — Migration / divergence
 
 - [ ] Migrate prost-based IR to hand-written idiomatic types (`decisions/0005`
       follow-up; requires its own ADR).
-- [ ] Consider SPLIT per-format crates (`decisions/0003` option 3) if needed.
+- [ ] Consider per-format crates (`decisions/0003` option 3) if needed.
 - [ ] Begin deliberate divergence: batch-fix logged upstream issues
       (`specs/parity.md` R4) under a divergence ADR.
 
