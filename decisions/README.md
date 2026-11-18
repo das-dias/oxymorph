@@ -78,3 +78,4 @@ How we will know the decision is honored (commands, tests, checks).
 | [0006](0006-ir-representation.md) | IR representation: hand-written serde types | implemented |
 | [0007](0007-oracle-corpus-testing.md) | Oracle-corpus testing strategy | implemented |
 | [0008](0008-python-bindings-and-docs.md) | Python bindings and documentation site | implemented |
+| [0009](0009-wasm-and-playground.md) | WebAssembly target and docs playground | implemented |

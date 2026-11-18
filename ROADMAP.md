@@ -144,7 +144,8 @@ unit effort):
 - [x] `oxymorph-python` (PyO3, module `oxymorph`, same functionality as
       `morphnet`, not API-compatible).
 - [ ] `oxymorph-cli` (if wanted).
-- [ ] `oxymorph-wasm` (if wanted).
+- [x] `oxymorph-wasm` (wasm-bindgen, `wasm32-unknown-unknown`) and the docs
+      playground (`decisions/0009`).
 - [x] Live binding check against upstream (357 parse / 2142 write).
 
 ## Phase 5 — Migration / divergence

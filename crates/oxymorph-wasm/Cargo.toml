@@ -1,0 +1,19 @@
+[package]
+name = "oxymorph-wasm"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/doplaydo/oxymorph"
+description = "WebAssembly bindings for oxymorph"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+oxymorph-schema = { path = "../oxymorph-schema" }
+oxymorph-netlist = { path = "../oxymorph-netlist" }
+wasm-bindgen = "0.2"
+
+[profile.release]
+opt-level = "s"
+lto = true

@@ -21,3 +21,10 @@ The crate contains no parsing or IR logic; it converts arguments and delegates t
 
 For the committed corpus, the binding's parse JSON and writer output equal
 upstream `morphnet` exactly (357 parse cases, 2142 writer outputs).
+
+## R4. WebAssembly
+
+`crates/oxymorph-wasm` (wasm-bindgen, `wasm32-unknown-unknown`) exposes
+`formats()`, `convert(text, in_format, out_format)`, `to_json(text, in_format)`
+and `version()`, delegating to `oxymorph-netlist`. The docs playground loads the
+`wasm-pack --target web` bundle from `docs/assets/playground/`.
