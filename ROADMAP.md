@@ -24,7 +24,7 @@ corpus, with no unexplained differential-harness deltas.
       Earley+resolve for spice/hspice/xyce); `include_lark!`/standalone cover
       LALR + basic lexer only and mis-lex `spectre`; lark-rs **in-process** with
       per-format config matches Python 21/21. `decisions/0002` revised to
-      lark-rs in-process; awaiting acceptance.
+      lark-rs in-process and **decided**.
 - [ ] Port the per-format preprocessing (`preprocess_*.py`: comment stripping,
       continuations, semicolon injection, vams directive/analog extraction).
 

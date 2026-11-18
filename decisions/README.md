@@ -71,7 +71,7 @@ How we will know the decision is honored (commands, tests, checks).
 | # | Title | Status |
 |---|-------|--------|
 | [0001](0001-rust-port-of-morphnet.md) | Rust port of the vendored morphnet library | decided |
-| [0002](0002-parser-engine.md) | Parser engine and lexing (lark-rs via `include_lark!`) | proposed |
+| [0002](0002-parser-engine.md) | Parser engine and lexing (lark-rs in-process) | decided |
 | [0003](0003-workspace-layout.md) | Crate workspace and layering | decided |
 | [0004](0004-parity-policy.md) | Parity policy and upstream divergence log | decided |
 | [0005](0005-ir-and-protobuf.md) | IR representation and protobuf strategy | decided |

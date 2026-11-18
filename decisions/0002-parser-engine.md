@@ -1,6 +1,6 @@
 # 0002. Parser engine and lexing
 
-- Status: proposed
+- Status: decided
 - Date: 2026-02-10
 - Supersedes: -
 - Superseded by: -
@@ -69,6 +69,13 @@ format to mirror upstream exactly**:
 
 Concretely:
 
+- **The engine is a normal `[dependencies]` crate compiled into our binary**
+  (like `regex` or `serde`) — not a separate parser binary, build-dependency,
+  external process, or interpreter. lark-rs builds its LALR/Earley tables when
+  our program runs, from the grammar text we pass to `Lark::new`.
+- The grammar text is **compile-time embedded** (`include_str!`) and the parser
+  is constructed **once** (e.g. `OnceLock`) and reused; a malformed grammar is a
+  construction error, covered by a test rather than the compiler.
 - The engine is hidden behind **our own parser trait**; `lark_rs` tree/error types
   are mapped to our own at that boundary and never leak into `oxymorph-netlist`'s
   public surface or the IR.
@@ -107,9 +114,9 @@ grammars; Earley ambiguity handled by the engine rather than by us.
 
 Harder / owed:
 
-- A pre-1.0, unpublished engine ships at runtime behind our trait; API churn and
-  correctness are external risks mitigated by the pin, the boundary, and the
-  parity harness.
+- A pre-1.0, unpublished engine is compiled into our binary behind our trait;
+  API churn and correctness are external risks mitigated by the pin, the
+  boundary, and the parity harness.
 - We must replicate upstream's per-format engine/lexer configuration; changing it
   is a divergence and needs an ADR (it changes trees).
 - `lark_rs`'s Earley/SPPF ambiguity resolution must match Python's
@@ -131,6 +138,6 @@ Harder / owed:
   `oxymorph-netlist`'s public API.
 - Re-run the spike on every re-vendor or `lark-rs` pin bump.
 
-Acceptance: this decision moves to **decided** once the user accepts shipping the
-pinned `lark-rs` engine in-process, and to **implemented** once the parser trait
-and first format are wired and covered by a spec.
+Acceptance: **decided** (user accepted compiling the pinned `lark-rs` engine
+into the binary in-process). Moves to **implemented** once the parser trait and
+first format are wired and covered by a spec.
