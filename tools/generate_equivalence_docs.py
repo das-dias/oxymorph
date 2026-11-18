@@ -85,9 +85,9 @@ def build_oxymorph():
     return c
 
 
-def tally() -> tuple[int, int, dict[str, int]]:
+def tally() -> tuple[int, int, int, dict[str, int]]:
     cases = json.loads((ROOT / "tests" / "corpus" / "cases.json").read_text())
-    parse = write = 0
+    parse = write = proto = 0
     per_format: dict[str, int] = {}
     writers = ["spice", "hspice", "xyce", "spectre", "spectre_spice", "vams"]
     for c in cases:
@@ -97,16 +97,20 @@ def tally() -> tuple[int, int, dict[str, int]]:
         ours = getattr(oxymorph, f"parse_{fmt}")(c["input"])
         if json.loads(up.to_json()) == json.loads(ours.to_json()):
             parse += 1
+        if json.loads(
+            oxymorph.Circuit.from_proto_bytes(up.to_proto_bytes()).to_json()
+        ) == json.loads(ours.to_json()):
+            proto += 1
         for w in writers:
             a = UP_WRITERS[w](up)
             b = getattr(oxymorph, f"write_{w}")(ours)
             if a == b:
                 write += 1
-    return parse, write, per_format
+    return parse, write, proto, per_format
 
 
 def main() -> int:
-    parse_ok, write_ok, per_format = tally()
+    parse_ok, write_ok, proto_ok, per_format = tally()
 
     up_circuit = build_upstream()
     our_circuit = build_oxymorph()
@@ -129,10 +133,12 @@ def main() -> int:
         "`tests/corpus/cases.json`.\n"
         "2. **Offline test.** `crates/oxymorph-netlist/tests/parity.rs` replays the corpus "
         "against the Rust implementation with no Python toolchain. It currently checks "
-        "**{parse} parse cases** and **{write} writer outputs**, all identical.\n"
+        "**{parse} parse cases** and **{write} writer outputs**, all identical. "
+        "It also proves the **protobuf interchange**: decoding upstream's "
+        "`to_proto_bytes()` reproduces our IR for **{proto} cases**.\n"
         "3. **Binding check.** The Python binding (`oxymorph`) is compared against upstream "
         "`morphnet` live for the same corpus across all six parsers and writers.\n".format(
-            parse=parse_ok, write=write_ok
+            parse=parse_ok, write=write_ok, proto=proto_ok
         )
     )
 
@@ -222,6 +228,10 @@ def main() -> int:
     lines.append(
         f"Writer outputs checked: **{write_ok}** (each parsed circuit written back in "
         "every format), all identical.\n"
+    )
+    lines.append(
+        f"Protobuf interchange: **{proto_ok}** circuits decoded from upstream's "
+        "`to_proto_bytes()` equal our parsed IR.\n"
     )
 
     OUT.write_text("\n".join(lines))

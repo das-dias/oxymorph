@@ -5,7 +5,7 @@ oxymorph is a port of upstream [morphnet](https://github.com/das-dias/morphnet),
 ## How it is proven
 
 1. **Oracle corpus.** `tools/extract_oracle.py` harvests every committed netlist and every inline netlist in upstream's test suite, runs the upstream Python as the oracle, and writes the expected IR (JSON) and writer output to `tests/corpus/cases.json`.
-2. **Offline test.** `crates/oxymorph-netlist/tests/parity.rs` replays the corpus against the Rust implementation with no Python toolchain. It currently checks **357 parse cases** and **2142 writer outputs**, all identical.
+2. **Offline test.** `crates/oxymorph-netlist/tests/parity.rs` replays the corpus against the Rust implementation with no Python toolchain. It currently checks **357 parse cases** and **2142 writer outputs**, all identical. It also proves the **protobuf interchange**: decoding upstream's `to_proto_bytes()` reproduces our IR for **357 cases**.
 3. **Binding check.** The Python binding (`oxymorph`) is compared against upstream `morphnet` live for the same corpus across all six parsers and writers.
 
 ## Examples
@@ -129,3 +129,5 @@ Parse cases per input format (all identical):
 | **total** | **357** |
 
 Writer outputs checked: **2142** (each parsed circuit written back in every format), all identical.
+
+Protobuf interchange: **357** circuits decoded from upstream's `to_proto_bytes()` equal our parsed IR.

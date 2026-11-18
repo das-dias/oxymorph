@@ -6,6 +6,7 @@
 //! `model_dump_json()` / `model_dump()` exactly, which is the parity oracle.
 
 pub mod builder;
+pub mod proto;
 
 use indexmap::IndexMap;
 

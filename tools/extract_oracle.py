@@ -74,6 +74,10 @@ def main() -> int:
             expected_json = json.loads(circuit.to_json())
         except Exception:
             return
+        try:
+            proto = circuit.to_proto_bytes().hex()
+        except Exception:
+            proto = None
         writes: dict[str, str] = {}
         for wfmt, wfn in writers.items():
             try:
@@ -86,6 +90,7 @@ def main() -> int:
                 "name": name,
                 "input": text,
                 "json": expected_json,
+                "proto": proto,
                 "writes": writes,
             }
         )

@@ -151,7 +151,7 @@ unit effort):
 ## Phase 5 — Migration / divergence
 
 - [x] Hand-written idiomatic IR (`decisions/0006`); no prost migration needed.
-- [ ] Add protobuf interchange parity (`specs/parity.md` R1.7).
+- [x] Protobuf interchange (`decisions/0010`), message-equal on the corpus.
 - [ ] Consider per-format crates (`decisions/0003` option 3) if needed.
 - [ ] Begin deliberate divergence: batch-fix logged upstream issues
       (`specs/parity.md` R4) under a divergence ADR.

@@ -4,6 +4,13 @@ use std::path::PathBuf;
 
 use oxymorph_schema::Circuit;
 
+fn hex_decode(s: &str) -> Vec<u8> {
+    (0..s.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+        .collect()
+}
+
 fn corpus_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/corpus/cases.json")
 }
@@ -37,6 +44,7 @@ fn parse_and_write_match_the_oracle() {
     let mut failures: Vec<String> = Vec::new();
     let mut parse_checked = 0usize;
     let mut write_checked = 0usize;
+    let mut proto_checked = 0usize;
 
     for case in &cases {
         let format = case["format"].as_str().unwrap();
@@ -57,6 +65,19 @@ fn parse_and_write_match_the_oracle() {
             failures.push(format!("{format}/{name}: IR differs from oracle"));
         }
 
+        if let Some(proto_hex) = case["proto"].as_str() {
+            let bytes = hex_decode(proto_hex);
+            match Circuit::from_proto_bytes(&bytes) {
+                Ok(c) if c == circuit => proto_checked += 1,
+                Ok(_) => failures.push(format!("{format}/{name}: protobuf interchange differs")),
+                Err(e) => failures.push(format!("{format}/{name}: protobuf decode failed: {e}")),
+            }
+            match Circuit::from_proto_bytes(&circuit.to_proto_bytes()) {
+                Ok(c) if c == circuit => {}
+                _ => failures.push(format!("{format}/{name}: protobuf round-trip differs")),
+            }
+        }
+
         if let Some(writes) = case["writes"].as_object() {
             for (wfmt, expected) in writes {
                 let expected = expected.as_str().unwrap();
@@ -70,13 +91,18 @@ fn parse_and_write_match_the_oracle() {
     }
 
     assert!(parse_checked > 300, "corpus too small: {parse_checked}");
+    assert!(
+        proto_checked > 300,
+        "protobuf corpus too small: {proto_checked}"
+    );
     if !failures.is_empty() {
         let shown: Vec<String> = failures.iter().take(40).cloned().collect();
         panic!(
-            "{} failures ({} parse, {} write checked):\n{}",
+            "{} failures ({} parse, {} write, {} proto checked):\n{}",
             failures.len(),
             parse_checked,
             write_checked,
+            proto_checked,
             shown.join("\n")
         );
     }

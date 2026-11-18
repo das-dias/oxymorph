@@ -10,7 +10,7 @@ use indexmap::IndexMap;
 use oxymorph_schema as xs;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
+use pyo3::types::{PyBytes, PyDict};
 
 
 fn convert_params(objs: Option<Vec<Bound<'_, PyAny>>>) -> PyResult<Vec<xs::Parameter>> {
@@ -712,6 +712,15 @@ impl Circuit {
     }
     fn to_yaml(&self) -> PyResult<String> {
         self.0.to_yaml().map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+    fn to_proto_bytes<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
+        PyBytes::new(py, &self.0.to_proto_bytes())
+    }
+    #[staticmethod]
+    fn from_proto_bytes(data: &[u8]) -> PyResult<Self> {
+        xs::Circuit::from_proto_bytes(data)
+            .map(Circuit)
+            .map_err(PyValueError::new_err)
     }
     #[staticmethod]
     fn from_json(s: &str) -> PyResult<Self> {

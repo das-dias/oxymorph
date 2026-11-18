@@ -79,3 +79,4 @@ How we will know the decision is honored (commands, tests, checks).
 | [0007](0007-oracle-corpus-testing.md) | Oracle-corpus testing strategy | implemented |
 | [0008](0008-python-bindings-and-docs.md) | Python bindings and documentation site | implemented |
 | [0009](0009-wasm-and-playground.md) | WebAssembly target and docs playground | implemented |
+| [0010](0010-protobuf-interchange.md) | Protobuf interchange implemented | implemented |

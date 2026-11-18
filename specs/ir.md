@@ -29,11 +29,8 @@ Hand-written Rust types mirror the upstream Pydantic models field-for-field:
 
 ## R4. Protobuf
 
-Deferred (`decisions/0006`): the `.proto` files remain the documented wire
-contract, but protobuf encoding of the IR is not implemented. JSON/YAML is the
-comparison surface.
-
-## Open
-
-- Add protobuf interchange parity (`specs/parity.md` R1.7) without changing the
-  JSON shape.
+Implemented (`decisions/0010`). `circuit.proto` / `simulation.proto` are compiled
+with `prost-build`; `Circuit::to_proto_bytes()` and `Circuit::from_proto_bytes()`
+round-trip through the wire format, mapping field renames, the `ParameterValue`
+oneof, and the enums. `from_proto_bytes(upstream.to_proto_bytes())` equals the
+parsed IR for the whole corpus (message-equality).
