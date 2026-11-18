@@ -516,10 +516,10 @@ impl VamsTransformer {
                 }
                 Item::Instance(inst) => instances.push(inst.clone()),
                 Item::Ground(g) => ground_net = g.net.clone(),
-                Item::Analog(a) => {
-                    if a.index >= 0 && (a.index as usize) < self.analog_blocks.len() {
-                        analog_block = self.analog_blocks[a.index as usize].clone();
-                    }
+                Item::Analog(a)
+                    if a.index >= 0 && (a.index as usize) < self.analog_blocks.len() =>
+                {
+                    analog_block = self.analog_blocks[a.index as usize].clone();
                 }
                 _ => {}
             }

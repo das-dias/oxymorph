@@ -338,10 +338,8 @@ fn extract_sim_args(items: &[Item]) -> (Vec<String>, IndexMap<String, String>) {
             Item::ParamKv(n, v) => {
                 opts.insert(n.clone(), param_value_str(v));
             }
-            Item::Token(_, v) => {
-                if !v.starts_with('.') {
-                    args.push(v.clone());
-                }
+            Item::Token(_, v) if !v.starts_with('.') => {
+                args.push(v.clone());
             }
             _ => {}
         }
