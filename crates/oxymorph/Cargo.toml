@@ -1,0 +1,10 @@
+[package]
+name = "oxymorph"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+oxymorph-schema = { path = "../oxymorph-schema" }
+oxymorph-netlist = { path = "../oxymorph-netlist" }
