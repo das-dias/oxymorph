@@ -1,125 +1,136 @@
 # 0002. Parser engine and lexing
 
-- Status: proposed (acceptance gated on the grammar-parity spike in *Verification*)
+- Status: proposed
 - Date: 2026-02-10
 - Supersedes: -
 - Superseded by: -
 - Related specs: `specs/parsing.md` (TBD)
-- Related decisions: `decisions/0001-rust-port-of-morphnet.md`
+- Related decisions: `0001-rust-port-of-morphnet.md`, `0003-workspace-layout.md`
 
 ## Context
 
-Upstream morphnet parses with Python Lark, `Lark(grammar_text, parser="lalr")`,
-using six LALR grammars under `src/morphnet/netlist/grammars/` (~692 lines
-including a shared `common.lark`) plus a per-format `preprocess.py`
-(comment stripping, line-continuation joining, semicolon injection). Parsed
-trees are consumed by `lark.Transformer` subclasses (~128 rule methods across
+Upstream morphnet parses with Python Lark using **five grammars** (not six:
+`common.lark` is unused, and `spectre_spice` has no grammar — it splits input on
+`simulator lang=` and delegates to the spice and spectre parsers). Each format
+uses a *different* engine configuration:
+
+| format | `Lark(...)` configuration |
+|---|---|
+| `spectre` | `parser="lalr"` (contextual lexer) |
+| `vams` | `parser="lalr"` (contextual lexer) |
+| `spice`, `hspice`, `xyce` | `parser="earley", ambiguity="resolve"` (dynamic lexer) |
+
+The SPICE-family grammars are **genuinely LALR-ambiguous**: they produce
+reduce/reduce conflicts in the EBNF lowering of `start`/`_NL`, reproduced
+identically in Python Lark 1.3.1 (`GrammarError: Reduce/Reduce collision …`).
+Upstream therefore falls back to Earley for those three.
+
+Parsed trees are consumed by `lark.Transformer` subclasses (~128 rule methods:
 spice 49, vams 48, spectre 24, hspice 3, xyce 4) that build the Pydantic IR.
+Decision 0001 requires functional equivalence, embedding, and single-artifact
+deployment.
 
-Decision 0001 requires functional equivalence with the Python implementation,
-and requires the result to be embeddable (no Python runtime) and deployable as a
-single artifact (including WASM).
+Decision 0003 requires the parser to sit behind our own trait, with generated
+tree/error types not leaking into the IR.
 
-### Grammar feature inventory (evidence)
+### Grammar-parity spike (evidence)
 
-The grammars use a plain Lark subset:
+Baked all five grammars with lark-rs's compile-time `include_lark!` and the
+in-process engine, and diffed trees against Python Lark over upstream's 12
+committed netlists plus 5 inline samples:
 
-- Only `%ignore` appears as a directive — no `%import`, `%override`, `%extend`,
-  `%declare`, and no parameterized templates.
-- Exactly two terminal priorities: `PORT_DIR.2`, `PARAM_TYPE_KW.2` (vams).
-- Regex terminals per format: `SI_NUMBER` (with SI suffix), `IDENT`,
-  `NET_NAME`, `QSTRING`, `FILE_PATH`, `BRACE_EXPR` (xyce), `OUTPUT_VAR`.
-- `%ignore` is format-specific: `[ \t]+` (spice/hspice/xyce, where `_NL: NL`
-  makes newlines significant) vs `[ \t\r\n]+` (spectre/vams).
-- Pervasive tree-shaping modifiers: `?rule` (inline if single child) and
-  `_rule` (always inline), e.g. `?statement`, `?param_value`, `?toplevel_item`,
-  `_SUBCKT_KW`.
+- `include_lark!` / `generate-parser` (standalone: **LALR + basic lexer only**):
+  - `spectre`, `hspice`, `spice`, `xyce` fail to build — the three SPICE-family
+    grammars have unresolvable LALR conflicts, and `spectre` builds but **mis-lexes**
+    (`rc_lowpass` read as `FILE_PATH` instead of `IDENT`; `include_lark!` is
+    LALR-only and its baked parser uses the basic lexer).
+  - Only `vams` bakes and parses correctly.
+- lark-rs **in-process**, configured to mirror upstream per format:
+  - `spectre` LALR + **contextual**: 4/4 netlists identical to Python.
+  - `vams` LALR + contextual and LALR + basic: 4/4 identical.
+  - `hspice` Earley + `ambiguity="resolve"`: 4/4 identical.
+  - `spice` (2) and `xyce` (3): 5/5 identical.
+  - Total **21/21 identical**; the only mismatches were `include_lark!`'s basic
+    lexer on `spectre`.
 
-### Why not translate to LALRPOP
-
-There is no Lark→LALRPOP converter, and the two differ exactly where the port
-costs most:
-
-- **Lexing model.** Lark uses a separate, contextual lexer over prioritized
-  regex terminals with `%ignore`; LALRPOP's built-in lexer is a non-contextual
-  DFA over literal tokens, with regex only via `match`/`extern`. Our regex
-  terminals and per-format ignore policy mean a hand-written lexer per format.
-- **Tree shaping.** LALRPOP emits *typed ASTs*; it has no tree/inlining layer.
-  The `?rule`/`_rule` semantics are load-bearing: the transformers consume
-  `items: list[Any]` whose shape those modifiers define. Porting means rewriting
-  all ~128 methods as AST→IR matches, with no mechanical path and no structural
-  guarantee of remaining equivalent to upstream.
-
-Only the surface BNF (EBNF `?`/`*`/`+`, `-> alias`, literal keyword terminals)
-translates mechanically; the lexing and tree-shaping halves do not. Under the
-criterion "cheap/automated → LALRPOP, manual → a Lark-compatible Rust engine",
-this is manual.
+`lark-rs` = `okalldal/lark`, `lark-rs/`, MIT, currently `0.1.0`, unpublished,
+consumed via git.
 
 ## Decision
 
-**Use `lark-rs`** (`okalldal/lark`, `lark-rs/`, MIT, currently `0.1.0`,
-unpublished, consumed via git) as the parsing engine, keeping the upstream
-`.lark` files as the authoritative grammar source (used verbatim), and consume
-it via its **compile-time `include_lark!` proc-macro** (`lark_proc`) so no
-parser engine ships at runtime.
+**Use `lark-rs` in-process** as the parsing engine, keeping the upstream `.lark`
+files as the authoritative grammar source (used verbatim), and configure it **per
+format to mirror upstream exactly**:
+
+- `spectre`: `ParserAlgorithm::Lalr` + `LexerType::Contextual`
+- `vams`: `ParserAlgorithm::Lalr` + `LexerType::Contextual`
+- `spice`, `hspice`, `xyce`: `ParserAlgorithm::Earley` + `Ambiguity::Resolve`
+  (+ the auto/dynamic lexer)
 
 Concretely:
 
-- Each of the six grammars is embedded with `include_lark!("grammars/<fmt>.lark")`,
-  producing a typed parser per format. No `ParseTable` construction at runtime.
-- The generated parser is wrapped behind **our own parser trait**, and its
-  `String` errors are mapped to our structured `ParseError` at that boundary.
-- `lark_rs` is kept as a **`[dev-dependencies]`** entry (not shipped) to A/B the
-  same grammars basic-vs-contextual and to generate oracle trees in tests.
-- `lark_proc` is a git dependency pinned by `Cargo.lock`; vendoring is the
-  fallback if reproducibility or fork availability becomes a problem.
+- The engine is hidden behind **our own parser trait**; `lark_rs` tree/error types
+  are mapped to our own at that boundary and never leak into `oxymorph-netlist`'s
+  public surface or the IR.
+- `lark_rs` is a pinned git dependency (`Cargo.lock`); vendoring is the fallback
+  if reproducibility or fork availability becomes a problem.
+- Compile-time baking (`include_lark!`) and standalone generation
+  (`generate-parser`) are **not** used, because they cover LALR + basic lexer
+  only. They remain a **future de-risking option** if lark-rs gains
+  contextual/Earley standalone support.
+- LALRPOP remains the documented fallback if `lark-rs` proves problematic; it
+  would require a manual parser + transformer rewrite (see below).
 
 ## Options considered
 
-- **(a) `lark_rs` in-process at runtime** — full engine (contextual lexer,
-  Earley, postlex, lookaround), fastest to a near-1:1 transformer port. Rejected
-  as the *shipping* model because it puts a pre-1.0 engine in the artifact, but
-  retained as a dev-dependency for debugging and oracle work.
-- **(b) `generate-parser` CLI, vendored output** — emits a self-contained Rust
-  LALR parser (`regex` + std only). No lark-rs dependency at all, but makes
-  regeneration a manual step. Viable later; kept as an escape hatch.
-- **(c) `include_lark!` proc-macro** — compile-time validation and baked tables,
-  self-contained output. **Chosen.**
-- **(d) LALRPOP** — mature and fully ours, but requires a manual parser + AST +
-  transformer rewrite with drift risk against upstream. Rejected for now;
-  documented fallback if `lark-rs` proves problematic.
+- **(a) `lark_rs` in-process, per-format config (chosen)** — evidenced to match
+  Python on all sampled inputs; the only option that covers the three ambiguous
+  Earley grammars without rewriting them. Cost: a pre-1.0 engine ships in the
+  artifact.
+- **(b) `generate-parser` standalone, vendored** — no lark-rs dependency, but
+  **LALR + basic lexer only**: cannot build the SPICE-family grammars and
+  mis-lexes `spectre`. Rejected on evidence.
+- **(c) `include_lark!` proc-macro** — compile-time baked parsers, but the same
+  LALR + basic-lexer restriction as (b). Rejected on evidence. (This was the
+  original decision; the spike falsified it.)
+- **(d) LALRPOP** — mature and fully ours, but the ambiguous SPICE-family
+  grammars would need rewriting or an Earley engine, and the ~128 transformer
+  methods are rewritten against a typed AST. Documented fallback only.
+- **(e) Hybrid: LALRPOP for spectre/vams + lark-rs Earley for the rest** —
+  possible, but still ships lark-rs for three formats while adding a second
+  parser stack. Not worth it.
 
 ## Consequences
 
-Easier: verbatim grammars, a near-1:1 transformer port, compile-time grammar
-errors, no runtime engine dependency, WASM/PyO3 friendliness.
+Easier: exact reproduction of upstream's per-format engine behavior; verbatim
+grammars; Earley ambiguity handled by the engine rather than by us.
 
 Harder / owed:
 
-- We accept **LALR + basic lexer only** for the shipped parsers; no postlex and
-  no lookaround grammars. If a grammar requires the contextual lexer, this
-  decision must be revisited (fall back to (a) for that format, or to (b)/(d)).
-- Parse errors arrive as `String`; we owe a structured error type at the wrapper.
-- `lark_proc` is a git dependency; we owe lockfile discipline and a vendoring
-  plan.
-- Transformers must be written against the generated per-struct `Tree`/`Token`/
-  `Child` types; freezing that surface behind our trait prevents leakage.
-- A grammar/lexer divergence from upstream is possible and must be caught by the
-  parity harness, not by inspection.
+- A pre-1.0, unpublished engine ships at runtime behind our trait; API churn and
+  correctness are external risks mitigated by the pin, the boundary, and the
+  parity harness.
+- We must replicate upstream's per-format engine/lexer configuration; changing it
+  is a divergence and needs an ADR (it changes trees).
+- `lark_rs`'s Earley/SPPF ambiguity resolution must match Python's
+  `ambiguity="resolve"` on ambiguous inputs; the corpus sweep covers this only
+  partially and the differential harness is the safety net.
+- The `// parity: <id>` mechanism (decision 0004) applies to any intentional
+  engine-behavior divergence.
+- Still no compile-time grammar validation (lost from the `include_lark!` path);
+  malformed grammars fail at parser construction, which we surface as a structured
+  error and cover with a test.
 
 ## Verification
 
-Acceptance is gated on a **grammar-parity spike**:
+- **Spike (done):** 21/21 tree-identical to Python Lark across the 12 committed
+  netlists and 5 inline samples, with per-format config above.
+- **Ongoing:** `specs/parity.md` R1 per format against the golden corpus, plus the
+  differential harness with no unexplained deltas.
+- **Boundary:** a test asserts `lark_rs` types do not appear in
+  `oxymorph-netlist`'s public API.
+- Re-run the spike on every re-vendor or `lark-rs` pin bump.
 
-1. Embed all six `.lark` files via `include_lark!`; each must compile (a bad
-   grammar fails the build by construction).
-2. Run the golden corpus (inputs + expected outputs extracted from the vendored
-   Python tests/`examples/`) through the baked parsers.
-3. Diff resulting trees against Python Lark's trees (via the `lark_rs`
-   dev-dependency and/or captured fixtures). Specifically probe the
-   keyword-vs-`IDENT` collision shape (`_SUBCKT_KW: "subckt"` vs `IDENT`) and the
-   per-format `%ignore`/`_NL` cases.
-4. Any grammar that does not reproduce Python Lark under the **basic** lexer
-   fails the spike and forces a documented change to this decision.
-
-If the spike passes, status moves to Accepted.
+Acceptance: this decision moves to **decided** once the user accepts shipping the
+pinned `lark-rs` engine in-process, and to **implemented** once the parser trait
+and first format are wired and covered by a spec.

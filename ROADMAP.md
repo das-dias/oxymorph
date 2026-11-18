@@ -19,11 +19,14 @@ corpus, with no unexplained differential-harness deltas.
       alias maps, oneof/union validation, JSON/YAML shape (`decisions/0005`).
 - [ ] Parity-harness scaffolding: corpus extraction from the vendored
       tests/`examples/`, canonical protobuf comparison, known-issue allow-list.
-- [ ] Parser spike (`decisions/0002` acceptance gate): all six `.lark` files
-      compile via `include_lark!`; trees match Python Lark under the **basic**
-      lexer, probing keyword-vs-`IDENT` and `%ignore`/`_NL` cases.
-
-If the spike fails, stop and revise `decisions/0002` before Phase 1.
+- [x] Parser spike (`decisions/0002` acceptance gate) — **done, falsified the
+      original decision.** Result: upstream mixes engines (LALR for spectre/vams,
+      Earley+resolve for spice/hspice/xyce); `include_lark!`/standalone cover
+      LALR + basic lexer only and mis-lex `spectre`; lark-rs **in-process** with
+      per-format config matches Python 21/21. `decisions/0002` revised to
+      lark-rs in-process; awaiting acceptance.
+- [ ] Port the per-format preprocessing (`preprocess_*.py`: comment stripping,
+      continuations, semicolon injection, vams directive/analog extraction).
 
 ## Phase 1 — First vertical slice
 
