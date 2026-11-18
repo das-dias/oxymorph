@@ -157,7 +157,9 @@ impl TreeTransform for SpectreTransformer {
             "model_stmt" => self.model_stmt(items),
             "parameters_stmt" => self.parameters_stmt(items),
             "include_stmt" => {
-                let path = tok(&items[0]).unwrap_or("").trim_matches(|c| c == '"' || c == '\'');
+                let path = tok(&items[0])
+                    .unwrap_or("")
+                    .trim_matches(|c| c == '"' || c == '\'');
                 Item::Include(IncludeData {
                     path: path.to_string(),
                 })
@@ -545,7 +547,10 @@ impl SpectreTransformer {
                 "__top__".to_string(),
                 vec![],
                 IndexMap::new(),
-                top_instances.iter().map(|i| Item::Instance(i.clone())).collect(),
+                top_instances
+                    .iter()
+                    .map(|i| Item::Instance(i.clone()))
+                    .collect(),
             );
             modules.insert(0, top_data.module.clone());
             all_ext_modules.extend(top_data.ext_modules.clone());
@@ -585,7 +590,11 @@ impl SpectreTransformer {
                         kind: analysis_kind(&a.kind).unwrap_or_default(),
                         name: a.name.clone(),
                         arguments: a.arguments.clone(),
-                        options: a.options.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+                        options: a
+                            .options
+                            .iter()
+                            .map(|(k, v)| (k.clone(), v.clone()))
+                            .collect(),
                     })
                     .collect(),
                 output_requests: output_requests
@@ -620,7 +629,9 @@ pub fn parse_spectre(text: &str) -> Result<Circuit, Error> {
     let mut t = SpectreTransformer::default();
     match t.transform(&tree) {
         Item::Circuit(c) => Ok(c),
-        _ => Err(Error::Validation("spectre transform did not produce a circuit".into())),
+        _ => Err(Error::Validation(
+            "spectre transform did not produce a circuit".into(),
+        )),
     }
 }
 
@@ -663,10 +674,16 @@ fn analysis_kind_to_spectre(kind: AnalysisKind) -> &'static str {
 pub fn write_spectre(circuit: &Circuit) -> String {
     let mut lines: Vec<String> = Vec::new();
 
-    let ext_by_name: IndexMap<&str, &ExternalModule> =
-        circuit.ext_modules.iter().map(|e| (e.name.as_str(), e)).collect();
-    let mod_by_name: IndexMap<&str, &Module> =
-        circuit.modules.iter().map(|m| (m.name.as_str(), m)).collect();
+    let ext_by_name: IndexMap<&str, &ExternalModule> = circuit
+        .ext_modules
+        .iter()
+        .map(|e| (e.name.as_str(), e))
+        .collect();
+    let mod_by_name: IndexMap<&str, &Module> = circuit
+        .modules
+        .iter()
+        .map(|m| (m.name.as_str(), m))
+        .collect();
 
     // directives
     let mut params: IndexMap<String, String> = IndexMap::new();
@@ -755,7 +772,10 @@ fn write_subckt(
         format!(" {}", param_strs.join(" "))
     };
 
-    lines.push(format!("subckt {module_name} ({port_names}){params_suffix}", module_name = module.name));
+    lines.push(format!(
+        "subckt {module_name} ({port_names}){params_suffix}",
+        module_name = module.name
+    ));
 
     let inst_nets = connections_to_instance_nets(&module.connections);
     for r in &module.module_references {
@@ -786,7 +806,12 @@ fn write_instance(
     let prefix = module_to_prefix(&r.module_name);
 
     let port_order: Vec<String> = if prefix.is_some() && ext_mod.is_some() {
-        ext_mod.unwrap().ports.iter().map(|p| p.name.clone()).collect()
+        ext_mod
+            .unwrap()
+            .ports
+            .iter()
+            .map(|p| p.name.clone())
+            .collect()
     } else if let Some(rm) = mod_by_name.get(r.module_name.as_str()) {
         rm.ports.iter().map(|p| p.name.clone()).collect()
     } else if let Some(em) = ext_mod {

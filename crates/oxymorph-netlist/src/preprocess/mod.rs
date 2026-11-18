@@ -230,7 +230,10 @@ pub fn preprocess_vams(text: &str) -> VamsPreprocessResult {
 
     let (mut text, analog_blocks) = replace_analog_blocks(&text);
 
-    text = Regex::new(r"\n{2,}").unwrap().replace_all(&text, "\n").to_string();
+    text = Regex::new(r"\n{2,}")
+        .unwrap()
+        .replace_all(&text, "\n")
+        .to_string();
     text = text.trim().to_string();
     if !text.is_empty() && !text.ends_with('\n') {
         text.push('\n');

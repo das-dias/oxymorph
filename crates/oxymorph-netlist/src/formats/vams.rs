@@ -753,10 +753,16 @@ fn format_param_value(pval: &ParameterValue) -> String {
 pub fn write_vams(circuit: &Circuit) -> String {
     let mut lines: Vec<String> = Vec::new();
 
-    let ext_by_name: IndexMap<&str, &ExternalModule> =
-        circuit.ext_modules.iter().map(|e| (e.name.as_str(), e)).collect();
-    let mod_by_name: IndexMap<&str, &Module> =
-        circuit.modules.iter().map(|m| (m.name.as_str(), m)).collect();
+    let ext_by_name: IndexMap<&str, &ExternalModule> = circuit
+        .ext_modules
+        .iter()
+        .map(|e| (e.name.as_str(), e))
+        .collect();
+    let mod_by_name: IndexMap<&str, &Module> = circuit
+        .modules
+        .iter()
+        .map(|m| (m.name.as_str(), m))
+        .collect();
 
     for d in &circuit.directives {
         match d.kind {
@@ -808,7 +814,11 @@ fn write_module(
     lines: &mut Vec<String>,
 ) {
     let port_names: Vec<String> = module.ports.iter().map(|p| p.name.clone()).collect();
-    lines.push(format!("module {} ({});", module.name, port_names.join(", ")));
+    lines.push(format!(
+        "module {} ({});",
+        module.name,
+        port_names.join(", ")
+    ));
 
     let mut dirs_by_dir: IndexMap<String, Vec<String>> = IndexMap::new();
     for port in &module.ports {
@@ -817,7 +827,10 @@ fn write_module(
             PortDirection::Output => "output",
             PortDirection::Inout => "inout",
         };
-        dirs_by_dir.entry(d.to_string()).or_default().push(port.name.clone());
+        dirs_by_dir
+            .entry(d.to_string())
+            .or_default()
+            .push(port.name.clone());
     }
     for (d, names) in &dirs_by_dir {
         lines.push(format!("  {d} {};", names.join(", ")));
@@ -837,7 +850,11 @@ fn write_module(
     }
 
     for param in &module.parameters {
-        let is_local = param.properties.get("localparam").map(|v| v == "true").unwrap_or(false);
+        let is_local = param
+            .properties
+            .get("localparam")
+            .map(|v| v == "true")
+            .unwrap_or(false);
         let kw = if is_local { "localparam" } else { "parameter" };
         let ptype = param.properties.get("type").cloned().unwrap_or_default();
         let val = match &param.default_value {

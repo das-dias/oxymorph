@@ -1,0 +1,15 @@
+[build-system]
+requires = ["maturin>=1.5,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "oxymorph"
+version = "0.1.0"
+description = "Rust port of the morphnet netlist parser (Python bindings)"
+requires-python = ">=3.9"
+license = { text = "Apache-2.0" }
+
+[tool.maturin]
+manifest-path = "crates/oxymorph-python/Cargo.toml"
+module-name = "oxymorph"
+features = ["pyo3/extension-module"]

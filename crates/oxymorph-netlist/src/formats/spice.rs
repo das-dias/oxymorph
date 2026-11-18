@@ -220,13 +220,17 @@ impl TreeTransform for SpiceTransformer {
             "model_stmt" => self.model_stmt(items),
             "param_stmt" => self.param_stmt(items),
             "include_stmt" => {
-                let path = tok(&items[1]).unwrap_or("").trim_matches(|c| c == '"' || c == '\'');
+                let path = tok(&items[1])
+                    .unwrap_or("")
+                    .trim_matches(|c| c == '"' || c == '\'');
                 Item::Include(IncludeData {
                     path: path.to_string(),
                 })
             }
             "lib_stmt" => {
-                let path = tok(&items[1]).unwrap_or("").trim_matches(|c| c == '"' || c == '\'');
+                let path = tok(&items[1])
+                    .unwrap_or("")
+                    .trim_matches(|c| c == '"' || c == '\'');
                 let section = items.get(2).and_then(tok).unwrap_or("").to_string();
                 Item::Lib(LibData {
                     path: path.to_string(),
@@ -538,8 +542,7 @@ impl SpiceTransformer {
             }
         }
 
-        let result =
-            self.build_subckt(subckt_name.clone(), port_names, subckt_params, body_items);
+        let result = self.build_subckt(subckt_name.clone(), port_names, subckt_params, body_items);
         self.all_subckts.insert(subckt_name, result.module.clone());
         Item::Subckt(result)
     }
@@ -881,7 +884,10 @@ impl SpiceTransformer {
                 "__top__".to_string(),
                 vec![],
                 IndexMap::new(),
-                top_instances.iter().map(|i| Item::Instance(i.clone())).collect(),
+                top_instances
+                    .iter()
+                    .map(|i| Item::Instance(i.clone()))
+                    .collect(),
             );
             modules.insert(0, top_data.module.clone());
             all_ext_modules.extend(top_data.ext_modules.clone());
@@ -940,7 +946,11 @@ impl SpiceTransformer {
                         kind: analysis_kind(&a.kind).unwrap_or_default(),
                         name: a.name.clone(),
                         arguments: a.arguments.clone(),
-                        options: a.options.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+                        options: a
+                            .options
+                            .iter()
+                            .map(|(k, v)| (k.clone(), v.clone()))
+                            .collect(),
                     })
                     .collect(),
                 output_requests: output_requests
@@ -959,10 +969,9 @@ impl SpiceTransformer {
                         body: m.body.clone(),
                     })
                     .collect(),
-                initial_conditions: ic_data
-                    .map(|ic| InitialCondition {
-                        conditions: ic.conditions.into_iter().collect(),
-                    }),
+                initial_conditions: ic_data.map(|ic| InitialCondition {
+                    conditions: ic.conditions.into_iter().collect(),
+                }),
                 node_sets: nodeset_data.map(|ns| InitialCondition {
                     conditions: ns.conditions.into_iter().collect(),
                 }),
@@ -999,7 +1008,9 @@ fn parse_with(text: &str, mode: Mode) -> Result<Circuit, Error> {
     let mut t = SpiceTransformer::new(mode);
     match t.transform(&tree) {
         Item::Circuit(c) => Ok(c),
-        _ => Err(Error::Validation("spice transform did not produce a circuit".into())),
+        _ => Err(Error::Validation(
+            "spice transform did not produce a circuit".into(),
+        )),
     }
 }
 
@@ -1077,10 +1088,16 @@ pub fn write_spice(circuit: &Circuit) -> String {
     };
     lines.push(format!("* {title}"));
 
-    let ext_by_name: IndexMap<&str, &ExternalModule> =
-        circuit.ext_modules.iter().map(|e| (e.name.as_str(), e)).collect();
-    let mod_by_name: IndexMap<&str, &Module> =
-        circuit.modules.iter().map(|m| (m.name.as_str(), m)).collect();
+    let ext_by_name: IndexMap<&str, &ExternalModule> = circuit
+        .ext_modules
+        .iter()
+        .map(|e| (e.name.as_str(), e))
+        .collect();
+    let mod_by_name: IndexMap<&str, &Module> = circuit
+        .modules
+        .iter()
+        .map(|m| (m.name.as_str(), m))
+        .collect();
 
     for d in &circuit.directives {
         match d.kind {
@@ -1094,7 +1111,11 @@ pub fn write_spice(circuit: &Circuit) -> String {
     }
 
     for ext in &circuit.ext_modules {
-        let model_type = ext.properties.get("model_type").cloned().unwrap_or_default();
+        let model_type = ext
+            .properties
+            .get("model_type")
+            .cloned()
+            .unwrap_or_default();
         if !model_type.is_empty() {
             let param_strs: Vec<String> = ext
                 .parameters
@@ -1109,7 +1130,10 @@ pub fn write_spice(circuit: &Circuit) -> String {
             if params_text.is_empty() {
                 lines.push(format!(".model {} {}", ext.name, model_type));
             } else {
-                lines.push(format!(".model {} {} {}", ext.name, model_type, params_text));
+                lines.push(format!(
+                    ".model {} {} {}",
+                    ext.name, model_type, params_text
+                ));
             }
         }
     }

@@ -83,10 +83,8 @@ pub fn device_prefix_to_module(prefix: &str) -> Option<&'static str> {
 fn si_number_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(
-            r"(?i)^([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)(meg|mil|[afpnumkgtx])?$",
-        )
-        .unwrap()
+        Regex::new(r"(?i)^([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)(meg|mil|[afpnumkgtx])?$")
+            .unwrap()
     })
 }
 

@@ -1,0 +1,17 @@
+[package]
+name = "oxymorph-python"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/doplaydo/oxymorph"
+
+[lib]
+name = "oxymorph"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+oxymorph-schema = { path = "../oxymorph-schema" }
+oxymorph-netlist = { path = "../oxymorph-netlist" }
+pyo3 = { version = "0.30", features = ["extension-module", "abi3-py39"] }
+indexmap = "2"
+serde_json = "1"

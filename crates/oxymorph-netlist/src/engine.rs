@@ -4,8 +4,8 @@
 //! spectre/vams use LALR + contextual lexer; spice/hspice/xyce use
 //! Earley + `ambiguity="resolve"` (dynamic lexer).
 
-use lark_rs::{Ambiguity, Lark, LarkOptions, LexerType, ParserAlgorithm};
 use lark_rs::tree::ParseTree;
+use lark_rs::{Ambiguity, Lark, LarkOptions, LexerType, ParserAlgorithm};
 
 use crate::error::Error;
 

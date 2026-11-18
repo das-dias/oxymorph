@@ -27,6 +27,9 @@ fn main() {
             Some(of) => print!("{}", write(&of, &c)),
             None => println!("{}", c.to_json().unwrap()),
         },
-        Err(e) => { eprintln!("ERROR: {e}"); std::process::exit(1); }
+        Err(e) => {
+            eprintln!("ERROR: {e}");
+            std::process::exit(1);
+        }
     }
 }

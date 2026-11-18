@@ -52,7 +52,10 @@ pub fn parse_spectre_spice(text: &str) -> Result<Circuit, Error> {
         }
     }
 
-    let top_module = all_modules.last().map(|m| m.name.clone()).unwrap_or_default();
+    let top_module = all_modules
+        .last()
+        .map(|m| m.name.clone())
+        .unwrap_or_default();
 
     let has_sim = !all_analyses.is_empty()
         || !all_output_requests.is_empty()

@@ -5,6 +5,8 @@
 //! JSON/YAML field names, enum integer values and defaults match Pydantic's
 //! `model_dump_json()` / `model_dump()` exactly, which is the parity oracle.
 
+pub mod builder;
+
 use indexmap::IndexMap;
 
 use serde::{Deserialize, Serialize};
