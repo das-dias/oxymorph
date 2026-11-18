@@ -142,9 +142,7 @@ fn add_semicolons(text: &str) -> String {
             continue;
         }
         let first_word = stripped.split_whitespace().next().unwrap_or("");
-        if first_word == "subckt" || first_word == "section" {
-            out.push(stripped.to_string());
-        } else if first_word == "ends" || first_word == "endsection" {
+        if matches!(first_word, "subckt" | "section" | "ends" | "endsection") {
             out.push(stripped.to_string());
         } else {
             out.push(format!("{stripped} ;"));

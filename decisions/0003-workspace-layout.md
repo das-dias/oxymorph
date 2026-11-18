@@ -1,6 +1,6 @@
 # 0003. Crate workspace and layering
 
-- Status: decided
+- Status: implemented
 - Date: 2026-02-10
 - Supersedes: -
 - Superseded by: -

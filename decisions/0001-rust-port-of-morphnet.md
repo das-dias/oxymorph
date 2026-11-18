@@ -1,6 +1,6 @@
 # 0001. Rust port of the vendored morphnet library
 
-- Status: decided
+- Status: implemented
 - Date: 2026-02-10
 - Supersedes: -
 - Superseded by: -

@@ -72,6 +72,7 @@ pub struct OutputRequestData {
 }
 
 #[derive(Clone, Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum Item {
     Token(String, String),
     Tree(String, Vec<Item>),
@@ -289,6 +290,7 @@ impl SpectreTransformer {
         Item::Subckt(result)
     }
 
+    #[allow(clippy::unnecessary_unwrap)]
     fn build_subckt(
         &self,
         name: String,
@@ -796,6 +798,7 @@ fn write_top_instances(
     }
 }
 
+#[allow(clippy::unnecessary_unwrap)]
 fn write_instance(
     r: &ModuleReference,
     inst_nets: &IndexMap<(String, String), String>,

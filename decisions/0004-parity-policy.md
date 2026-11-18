@@ -1,6 +1,6 @@
 # 0004. Parity policy and upstream divergence log
 
-- Status: decided
+- Status: implemented
 - Date: 2026-02-10
 - Supersedes: -
 - Superseded by: -

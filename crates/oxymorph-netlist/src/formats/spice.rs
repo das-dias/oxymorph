@@ -123,6 +123,7 @@ pub struct TemperatureData {
 }
 
 #[derive(Clone, Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum Item {
     Token(String, String),
     Tree(String, Vec<Item>),

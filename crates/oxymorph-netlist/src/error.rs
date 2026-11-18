@@ -57,7 +57,7 @@ impl From<lark_rs::ParseError> for Error {
                 expected,
             } => Error::Parse {
                 message: format!(
-                    "Unexpected token {token:?} at line {line}, column {col}. Expected one of: {expected:?}"
+                    "Unexpected token {token:?} ({token_type}) at line {line}, column {col}. Expected one of: {expected:?}"
                 ),
                 line,
                 column: col,

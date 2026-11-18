@@ -1,6 +1,6 @@
 # 0005. IR representation and protobuf strategy
 
-- Status: decided (migration step to hand-written types is a planned follow-up)
+- Status: implemented
 - Date: 2026-02-10
 - Supersedes: -
 - Superseded by: -

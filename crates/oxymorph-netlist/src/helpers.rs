@@ -145,7 +145,7 @@ pub fn python_g(x: f64) -> String {
         return if x > 0.0 { "inf" } else { "-inf" }.to_string();
     }
     let exp = x.abs().log10().floor() as i32;
-    if exp < -4 || exp >= 6 {
+    if !(-4..6).contains(&exp) {
         let s = format!("{:.*e}", 5, x);
         let (mant, ex) = s.split_once('e').unwrap();
         let mant = trim_zeros(mant);

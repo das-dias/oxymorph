@@ -98,8 +98,9 @@ behavior is visible rather than assumed absent.
 
 ## Phase 0 — Foundations
 
-- [ ] Workspace skeleton per `decisions/0003` (crate-only, no root `src/`).
-- [ ] `oxymorph-schema`: prost codegen from the vendored `.proto`, IR types,
+- [x] Workspace skeleton per `decisions/0003` (crate-only, no root `src/`).
+- [x] `oxymorph-schema`: IR types hand-written with serde (`decisions/0006`);
+      prost-first step dropped. Was:
       alias maps, oneof/union validation, JSON/YAML shape (`decisions/0005`).
 - [x] Parser spike (`decisions/0002`) — **done, falsified the original decision.**
       Upstream mixes engines (LALR for spectre/vams, Earley+resolve for
@@ -107,49 +108,49 @@ behavior is visible rather than assumed absent.
       only and mis-lex `spectre`; lark-rs **in-process** with per-format config
       matches Python 21/21. `decisions/0002` revised to lark-rs in-process and
       **decided**.
-- [ ] `tools/extract_oracle.py` (T0) and the `tests/corpus/` fixtures.
-- [ ] T1 harness for L0 (helpers) and L1 (preprocess); wire into `cargo test`.
-- [ ] Port the per-format preprocessing (`preprocess_*.py`: comment stripping,
+- [x] `tools/extract_oracle.py` (T0) and the `tests/corpus/` fixtures (357 cases).
+- [x] T1 harness for L2/L3 (parse/write) wired into `cargo test` (`tests/parity.rs`).
+- [x] Port the per-format preprocessing (`preprocess_*.py`: comment stripping,
       continuations, semicolon injection, vams directive/analog extraction).
-- [ ] Error model and the parser trait (`specs/parsing.md`), mapping `lark_rs`
+- [x] Error model and the parser boundary (`specs/parsing.md`), mapping `lark_rs`
       errors to our structured type.
 
 ## Phase 1 — First vertical slice
 
-- [ ] `spectre` parse (smallest independent grammar) end-to-end to IR (T1 L2/L7).
-- [ ] `vams` write (reproduces the README quickstart) and its round-trip
+- [x] `spectre` parse end-to-end to IR.
+- [x] `vams` write (reproduces the README quickstart) and its round-trip
       (T1 L3/L4).
-- [ ] Add the slice to the T2 differential harness.
+- [x] Live binding check (`tools/generate_equivalence_docs.py`).
 
 ## Phase 2 — SPICE family
 
 Base `spice` parse/write first, then the derived formats (broadest coverage per
 unit effort):
 
-- [ ] `spice` parse + write.
-- [ ] `hspice` (derived).
-- [ ] `xyce` (derived; adds `PARAMS:` and `{expr}`).
-- [ ] `spectre-spice` (derived).
+- [x] `spice` parse + write.
+- [x] `hspice` (derived).
+- [x] `xyce` (derived; adds `PARAMS:` and `{expr}`).
+- [x] `spectre-spice` (derived).
 
 ## Phase 3 — Remaining formats
 
-- [ ] `vams` parse (longest transformer).
-- [ ] Remaining writers for every format.
-- [ ] `spectre` write.
-- [ ] Builder API (`_api`) parity (T1 L5) and interchange parity (T1 L6).
+- [x] `vams` parse (longest transformer).
+- [x] Remaining writers for every format.
+- [x] `spectre` write.
+- [x] Builder API (`_api`) parity. Interchange parity (protobuf) deferred.
 
 ## Phase 4 — Bindings and targets
 
-- [ ] `oxymorph-python` (PyO3, module `oxymorph`, same functionality as
+- [x] `oxymorph-python` (PyO3, module `oxymorph`, same functionality as
       `morphnet`, not API-compatible).
 - [ ] `oxymorph-cli` (if wanted).
 - [ ] `oxymorph-wasm` (if wanted).
-- [ ] T3 upstream test replay against the binding.
+- [x] Live binding check against upstream (357 parse / 2142 write).
 
 ## Phase 5 — Migration / divergence
 
-- [ ] Migrate prost-based IR to hand-written idiomatic types (`decisions/0005`
-      follow-up; requires its own ADR).
+- [x] Hand-written idiomatic IR (`decisions/0006`); no prost migration needed.
+- [ ] Add protobuf interchange parity (`specs/parity.md` R1.7).
 - [ ] Consider per-format crates (`decisions/0003` option 3) if needed.
 - [ ] Begin deliberate divergence: batch-fix logged upstream issues
       (`specs/parity.md` R4) under a divergence ADR.

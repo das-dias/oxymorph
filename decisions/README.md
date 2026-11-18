@@ -70,8 +70,11 @@ How we will know the decision is honored (commands, tests, checks).
 
 | # | Title | Status |
 |---|-------|--------|
-| [0001](0001-rust-port-of-morphnet.md) | Rust port of the vendored morphnet library | decided |
-| [0002](0002-parser-engine.md) | Parser engine and lexing (lark-rs in-process) | decided |
-| [0003](0003-workspace-layout.md) | Crate workspace and layering | decided |
-| [0004](0004-parity-policy.md) | Parity policy and upstream divergence log | decided |
-| [0005](0005-ir-and-protobuf.md) | IR representation and protobuf strategy | decided |
+| [0001](0001-rust-port-of-morphnet.md) | Rust port of the vendored morphnet library | implemented |
+| [0002](0002-parser-engine.md) | Parser engine and lexing (lark-rs in-process) | implemented |
+| [0003](0003-workspace-layout.md) | Crate workspace and layering | implemented |
+| [0004](0004-parity-policy.md) | Parity policy and upstream divergence log | implemented |
+| [0005](0005-ir-and-protobuf.md) | IR representation and protobuf strategy | implemented (prost-first step superseded by 0006) |
+| [0006](0006-ir-representation.md) | IR representation: hand-written serde types | implemented |
+| [0007](0007-oracle-corpus-testing.md) | Oracle-corpus testing strategy | implemented |
+| [0008](0008-python-bindings-and-docs.md) | Python bindings and documentation site | implemented |

@@ -1,6 +1,6 @@
 # 0002. Parser engine and lexing
 
-- Status: decided
+- Status: implemented
 - Date: 2026-02-10
 - Supersedes: -
 - Superseded by: -
