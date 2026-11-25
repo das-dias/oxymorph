@@ -220,7 +220,10 @@ impl SpectreTransformer {
             }
         }
 
-        if SPECTRE_ANALYSIS_TYPES.contains(&cell_name.as_str()) {
+        // A subckt defined in the deck named like an analysis (`dc`) is an instance
+        if SPECTRE_ANALYSIS_TYPES.contains(&cell_name.as_str())
+            && !self.all_subckts.contains_key(&cell_name)
+        {
             let mut options = IndexMap::new();
             for (k, v) in &params {
                 options.insert(k.clone(), param_value_str(v));
@@ -353,7 +356,7 @@ impl SpectreTransformer {
             .map(|pn| Port {
                 name: pn.clone(),
                 direction: PortDirection::Inout,
-                domain: SignalDomain::Electrical,
+                domain: domain_of(pn),
                 ..Default::default()
             })
             .collect();
@@ -366,13 +369,22 @@ impl SpectreTransformer {
         }
 
         for inst in &instances {
-            let device_prefix = inst.device_prefix.as_str();
+            // Spectre picks the device from the master, not the instance name: a defined
+            // subckt or a built-in master (`capacitor`) wins over the SPICE-style name
+            // prefix, which is only the fallback.
+            let subckt_mod = nested_subckts
+                .get(&inst.cell_name)
+                .or_else(|| self.all_subckts.get(&inst.cell_name));
+            let device_prefix =
+                module_to_prefix(&inst.cell_name).unwrap_or(inst.device_prefix.as_str());
             let port_template = device_port_template(device_prefix);
 
-            if device_prefix == "X" || port_template.is_none() {
-                let subckt_mod = nested_subckts
-                    .get(&inst.cell_name)
-                    .or_else(|| self.all_subckts.get(&inst.cell_name));
+            // A built-in master with more or fewer nets than its pin template (a
+            // 3-terminal `resistor`) keeps every net positionally.
+            if subckt_mod.is_some()
+                || device_prefix == "X"
+                || port_template.is_none_or(|template| template.len() != inst.net_names.len())
+            {
                 let inst_port_names: Vec<String> = match subckt_mod {
                     Some(m) => m.ports.iter().map(|p| p.name.clone()).collect(),
                     None => (0..inst.net_names.len()).map(|i| format!("p{i}")).collect(),
@@ -410,7 +422,7 @@ impl SpectreTransformer {
                         .map(|pn| Port {
                             name: pn.to_string(),
                             direction: PortDirection::Inout,
-                            domain: SignalDomain::Electrical,
+                            domain: domain_of(pn),
                             ..Default::default()
                         })
                         .collect();
@@ -819,6 +831,12 @@ fn write_instance(
         rm.ports.iter().map(|p| p.name.clone()).collect()
     } else if let Some(em) = ext_mod {
         em.ports.iter().map(|p| p.name.clone()).collect()
+    } else if let Some(template) = prefix
+        // parity: kf-device-pin-template
+        .and_then(device_port_template)
+        .filter(|template| has_every_pin(r, template, inst_nets))
+    {
+        template.iter().map(|pin| pin.to_string()).collect()
     } else {
         infer_port_order(r, inst_nets)
     };
@@ -856,6 +874,19 @@ fn write_instance(
     };
 
     format!("{} ({nets}) {cell_name}{params_text}", r.name)
+}
+
+fn has_every_pin(
+    reference: &ModuleReference,
+    template: &[&str],
+    instance_nets: &IndexMap<(String, String), String>,
+) -> bool {
+    for pin in template {
+        if !instance_nets.contains_key(&(reference.name.clone(), pin.to_string())) {
+            return false;
+        }
+    }
+    true
 }
 
 fn infer_port_order(

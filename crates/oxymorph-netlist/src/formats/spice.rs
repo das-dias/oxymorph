@@ -615,7 +615,7 @@ impl SpiceTransformer {
             .map(|pn| Port {
                 name: pn.clone(),
                 direction: PortDirection::Inout,
-                domain: SignalDomain::Electrical,
+                domain: domain_of(pn),
                 ..Default::default()
             })
             .collect();
@@ -671,7 +671,7 @@ impl SpiceTransformer {
                         .map(|pn| Port {
                             name: pn.to_string(),
                             direction: PortDirection::Inout,
-                            domain: SignalDomain::Electrical,
+                            domain: domain_of(pn),
                             ..Default::default()
                         })
                         .collect();
@@ -1237,11 +1237,16 @@ fn write_instance(
     let prefix = module_to_prefix(&r.module_name);
     let ext_mod = ext_by_name.get(r.module_name.as_str());
 
-    if let Some(_prefix) = prefix {
+    if let Some(prefix) = prefix {
         let inst_name = r.name.clone();
         let port_order: Vec<String> = match ext_mod {
             Some(em) => em.ports.iter().map(|p| p.name.clone()).collect(),
-            None => vec!["p".to_string(), "n".to_string()],
+            // parity: kf-device-pin-template
+            None => device_port_template(prefix)
+                .unwrap_or_default()
+                .iter()
+                .map(|pin| pin.to_string())
+                .collect(),
         };
         let nets = port_order
             .iter()

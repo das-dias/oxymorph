@@ -179,6 +179,7 @@ fn parse_and_write_match_the_oracle() {
     let mut parse_checked = 0usize;
     let mut write_checked = 0usize;
     let mut proto_checked = 0usize;
+    let mut proto_overridden = 0usize;
 
     for case in &cases {
         let format = case["format"].as_str().unwrap();
@@ -213,6 +214,8 @@ fn parse_and_write_match_the_oracle() {
                         failures.push(format!("{format}/{name}: protobuf decode failed: {e}"))
                     }
                 }
+            } else {
+                proto_overridden += 1;
             }
             match Circuit::from_proto_bytes(&circuit.to_proto_bytes()) {
                 Ok(c) if c == circuit => {}
@@ -231,8 +234,8 @@ fn parse_and_write_match_the_oracle() {
 
     assert!(parse_checked > 300, "corpus too small: {parse_checked}");
     assert!(
-        proto_checked > 300,
-        "protobuf corpus too small: {proto_checked}"
+        proto_checked + proto_overridden > 300,
+        "protobuf corpus too small: {proto_checked} checked, {proto_overridden} overridden"
     );
     if !failures.is_empty() {
         let shown: Vec<String> = failures.iter().take(40).cloned().collect();

@@ -530,7 +530,7 @@ impl VamsTransformer {
             .map(|pn| Port {
                 name: pn.clone(),
                 direction: port_dirs.get(pn).copied().unwrap_or(PortDirection::Inout),
-                domain: SignalDomain::Electrical,
+                domain: domain_of(pn),
                 discipline: port_disciplines.get(pn).cloned().unwrap_or_default(),
                 ..Default::default()
             })

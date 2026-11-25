@@ -22,7 +22,8 @@ pub fn parse_spectre_spice(text: &str) -> Result<Circuit, Error> {
     let mut ic_conditions: Properties = Properties::new();
     let mut ns_conditions: Properties = Properties::new();
 
-    for section in &sections {
+    let mut section_of: IndexMap<String, usize> = IndexMap::new();
+    for (index, section) in sections.iter().enumerate() {
         if section.text.trim().is_empty() {
             continue;
         }
@@ -32,6 +33,9 @@ pub fn parse_spectre_spice(text: &str) -> Result<Circuit, Error> {
             parse_spice(&section.text)?
         };
 
+        for module in &circuit.modules {
+            section_of.insert(module.name.clone(), index);
+        }
         all_modules.extend(circuit.modules);
         for ext in circuit.ext_modules {
             all_ext_modules.insert(ext.name.clone(), ext);
@@ -52,6 +56,7 @@ pub fn parse_spectre_spice(text: &str) -> Result<Circuit, Error> {
         }
     }
 
+    resolve_cross_section_pins(&mut all_modules, &section_of);
     let top_module = all_modules
         .last()
         .map(|m| m.name.clone())
@@ -99,6 +104,52 @@ pub fn parse_spectre_spice(text: &str) -> Result<Circuit, Error> {
         simulation,
         ..Default::default()
     })
+}
+
+/// Name the pins of instances whose subcircuit is defined in another section.
+///
+/// Each section is parsed on its own, so such instances get positional `p0`, `p1`, ...
+/// pins; map them to the definition's port names.
+fn resolve_cross_section_pins(modules: &mut [Module], section_of: &IndexMap<String, usize>) {
+    let mut ports_of: IndexMap<String, Vec<String>> = IndexMap::new();
+    for module in modules.iter() {
+        let port_names = module.ports.iter().map(|port| port.name.clone()).collect();
+        ports_of.insert(module.name.clone(), port_names);
+    }
+    for module in modules.iter_mut() {
+        let mut instance_ports: IndexMap<String, &Vec<String>> = IndexMap::new();
+        for reference in &module.module_references {
+            let Some(port_names) = ports_of.get(&reference.module_name) else {
+                continue;
+            };
+            if section_of[&reference.module_name] != section_of[&module.name] {
+                instance_ports.insert(reference.name.clone(), port_names);
+            }
+        }
+        for connection in &mut module.connections {
+            for port_reference in [&mut connection.source, &mut connection.target]
+                .into_iter()
+                .flatten()
+            {
+                let Some(port_names) = instance_ports.get(&port_reference.instance_name) else {
+                    continue;
+                };
+                if let Some(port_name) = positional_pin_name(&port_reference.port_name, port_names)
+                {
+                    port_reference.port_name = port_name.clone();
+                }
+            }
+        }
+    }
+}
+
+/// The definition's port name for a positional pin `p<N>`, if it has one.
+fn positional_pin_name<'a>(pin: &str, port_names: &'a [String]) -> Option<&'a String> {
+    let digits = pin.strip_prefix('p')?;
+    if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    port_names.get(digits.parse::<usize>().ok()?)
 }
 
 pub fn write_spectre_spice(circuit: &Circuit) -> String {

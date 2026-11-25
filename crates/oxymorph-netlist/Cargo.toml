@@ -18,6 +18,10 @@ vams = []
 name = "parity"
 required-features = ["spice", "hspice", "xyce", "spectre", "spectre_spice", "vams"]
 
+[[test]]
+name = "kf_fixes"
+required-features = ["spice", "hspice", "xyce", "spectre", "spectre_spice", "vams"]
+
 [dependencies]
 oxymorph-schema = { path = "../oxymorph-schema" }
 lark-rs.workspace = true

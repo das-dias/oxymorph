@@ -182,6 +182,27 @@ pub fn format_si_value(pv: &PrefixedValue) -> String {
 }
 
 // ---------------------------------------------------------------------------
+// Signal domains
+// ---------------------------------------------------------------------------
+
+/// Cell name → pin name → signal domain.
+pub type PinDomains = IndexMap<String, IndexMap<String, SignalDomain>>;
+
+/// `o1`, `o2`, ... are waveguide terminals; `e1`, `vdd`, ... are electrical.
+pub fn domain_of(port_name: &str) -> SignalDomain {
+    let mut characters = port_name.chars();
+    if characters.next() == Some('o')
+        && characters
+            .next()
+            .is_some_and(|character| character.is_ascii_digit())
+    {
+        SignalDomain::Waveguide
+    } else {
+        SignalDomain::Electrical
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Net maps
 // ---------------------------------------------------------------------------
 
@@ -218,18 +239,30 @@ pub fn net_map_to_connections(net_map: &NetMap) -> Vec<Connection> {
             continue;
         }
         let source = refs[0].clone();
+        let domain = net_domain(refs);
         for target in &refs[1..] {
             connections.push(Connection {
                 name: net_name.to_string(),
                 source: Some(source.clone()),
                 target: Some(target.clone()),
-                domain: SignalDomain::Unspecified,
+                // parity: kf-signal-domains
+                domain,
                 weight: 0,
                 properties: Default::default(),
             });
         }
     }
     connections
+}
+
+/// A net touching any waveguide terminal is a waveguide net.
+fn net_domain(refs: &[PortReference]) -> SignalDomain {
+    for port_reference in refs {
+        if domain_of(&port_reference.port_name) == SignalDomain::Waveguide {
+            return SignalDomain::Waveguide;
+        }
+    }
+    SignalDomain::Electrical
 }
 
 pub fn connections_to_instance_nets(

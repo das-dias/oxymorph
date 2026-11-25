@@ -35,3 +35,25 @@ errors are mapped to `Error::Parse { message, line, column }`.
 
 Every format parses at least the upstream `tests/netlists` corpus. Loss of
 parity on any corpus case is a bug (see `specs/parity.md`).
+
+## R5. Instances and signal domains
+
+Ported from kfnetlist #34 and #36 (`decisions/0011`):
+
+- Every parser marks ports and pins named `o<N>` (`o1`, `o12`, ...) as
+  `WAVEGUIDE` and the rest as `ELECTRICAL` (`helpers::domain_of`). A connection
+  takes its net's domain: `WAVEGUIDE` when the net touches an `o<N>` terminal,
+  else `ELECTRICAL`.
+- Spectre: the master decides the device, not the instance-name letter. A
+  defined subckt makes an instance with the subckt's port names; a built-in
+  master (`resistor`, `capacitor`, ...) makes that device; the name letter is
+  the fallback. A built-in master with more or fewer nets than its pin template
+  keeps every net positionally (`p0`, `p1`, ...). A subckt named like an
+  analysis (`dc`) and defined earlier in the deck makes an instance, not an
+  analysis.
+- Spectre-SPICE: an instance of a subckt defined in another language section
+  gets the definition's port names instead of positional `p<N>` pins.
+- Writers: a built-in device with no external-module declaration is written in
+  its pin-template order (`d g s b` for `M`); Spectre does so only when the
+  instance has every template pin, else it infers the order from the
+  connections.
