@@ -1,3 +1,5 @@
+#[cfg(feature = "gsch")]
+pub mod gsch;
 #[cfg(feature = "hspice")]
 pub mod hspice;
 #[cfg(feature = "spectre")]
@@ -13,6 +15,10 @@ pub mod vams;
 #[cfg(feature = "xyce")]
 pub mod xyce;
 
+#[cfg(all(feature = "gsch", not(target_arch = "wasm32")))]
+pub use gsch::read_gsch;
+#[cfg(feature = "gsch")]
+pub use gsch::{parse_gsch, write_gsch, GschOptions};
 #[cfg(feature = "hspice")]
 pub use hspice::write_hspice;
 #[cfg(feature = "spectre")]
@@ -49,15 +55,20 @@ pub fn parse_dispatch(format: &str, text: &str) -> Result<Circuit, Error> {
         "vams" => parse_vams(text),
         #[cfg(feature = "systemverilog")]
         "systemverilog" => parse_systemverilog(text, &crate::hdl::HdlOptions::default()),
+        #[cfg(feature = "gsch")]
+        "gsch" => parse_gsch(text, &GschOptions::default()),
         other => Err(Error::Validation(format!(
             "unknown or disabled format: {other}"
         ))),
     }
 }
 
-/// Dispatch write by format name (used by bindings).
-pub fn write_dispatch(format: &str, circuit: &Circuit) -> String {
-    match format {
+/// Dispatch write by format name (used by bindings). Only `gsch` can fail: an edited
+/// param that is derived from a model expression has no prop to go back to.
+pub fn write_dispatch(format: &str, circuit: &Circuit) -> Result<String, Error> {
+    let text = match format {
+        #[cfg(feature = "gsch")]
+        "gsch" => return write_gsch(circuit),
         #[cfg(feature = "spectre")]
         "spectre" => write_spectre(circuit),
         #[cfg(feature = "vams")]
@@ -74,5 +85,6 @@ pub fn write_dispatch(format: &str, circuit: &Circuit) -> String {
         _ => write_spice(circuit),
         #[cfg(not(feature = "spice"))]
         _ => String::new(),
-    }
+    };
+    Ok(text)
 }

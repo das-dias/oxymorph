@@ -6,7 +6,7 @@ license.workspace = true
 repository.workspace = true
 
 [features]
-default = ["spice", "hspice", "xyce", "spectre", "spectre_spice", "vams", "systemverilog"]
+default = ["spice", "hspice", "xyce", "spectre", "spectre_spice", "vams", "systemverilog", "gsch"]
 spice = ["oxymorph-netlist/spice"]
 hspice = ["oxymorph-netlist/hspice"]
 xyce = ["oxymorph-netlist/xyce"]
@@ -14,6 +14,7 @@ spectre = ["oxymorph-netlist/spectre"]
 spectre_spice = ["oxymorph-netlist/spectre_spice"]
 vams = ["oxymorph-netlist/vams"]
 systemverilog = ["oxymorph-netlist/systemverilog"]
+gsch = ["oxymorph-netlist/gsch"]
 
 [dependencies]
 oxymorph-schema = { path = "../oxymorph-schema" }

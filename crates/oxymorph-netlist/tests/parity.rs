@@ -249,7 +249,8 @@ fn expected_for<'a>(case: &'a serde_json::Value, over: &'a serde_json::Value) ->
 #[test]
 fn expected_values_apply_overrides() {
     let case =
-        serde_json::json!({"json": {"a": 1}, "writes": {"spice": "old s", "spectre": "old x"}});
+        // keys in sorted order: serde_json keeps insertion order (`preserve_order`)
+        serde_json::json!({"json": {"a": 1}, "writes": {"spectre": "old x", "spice": "old s"}});
 
     let none = serde_json::json!(null);
     let plain = expected_for(&case, &none);

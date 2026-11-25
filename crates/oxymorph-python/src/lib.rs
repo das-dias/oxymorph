@@ -1212,8 +1212,9 @@ parse_fn!(parse_vams, "vams");
 macro_rules! write_fn {
     ($name:ident, $fmt:literal) => {
         #[pyfunction]
-        fn $name(circuit: &Circuit) -> String {
+        fn $name(circuit: &Circuit) -> PyResult<String> {
             oxymorph_netlist::formats::write_dispatch($fmt, &circuit.0)
+                .map_err(|e| PyValueError::new_err(e.to_string()))
         }
     };
 }

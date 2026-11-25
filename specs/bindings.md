@@ -5,7 +5,7 @@ The `oxymorph` Python module (`decisions/0008`).
 ## R1. Surface
 
 - Parsers `parse_{spice,hspice,xyce,spectre,spectre_spice,vams}(text) -> Circuit`.
-- Writers `write_{...}(circuit) -> str`.
+- Writers `write_{...}(circuit) -> str` (a writer error is a `ValueError`).
 - Builder functions mirroring `morphnet._api`.
 - IR classes with getters, `to_json`/`to_yaml`/`from_json`/`from_yaml`, and
   `__eq__`; enums as integer constants.
@@ -25,6 +25,6 @@ upstream `morphnet` exactly (357 parse cases, 2142 writer outputs).
 ## R4. WebAssembly
 
 `crates/oxymorph-wasm` (wasm-bindgen, `wasm32-unknown-unknown`) exposes
-`formats()`, `convert(text, in_format, out_format)`, `to_json(text, in_format)`
-and `version()`, delegating to `oxymorph-netlist`. The docs playground loads the
+`formats()` (including `gsch`), `convert(text, in_format, out_format)`,
+`to_json(text, in_format)` and `version()`, delegating to `oxymorph-netlist`. The docs playground loads the
 `wasm-pack --target web` bundle from `docs/assets/playground/`.

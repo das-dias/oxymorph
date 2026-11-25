@@ -18,6 +18,7 @@ pub fn formats() -> Vec<String> {
         "spectre_spice".to_string(),
         "vams".to_string(),
         "systemverilog".to_string(),
+        "gsch".to_string(),
     ]
 }
 
@@ -25,7 +26,7 @@ pub fn formats() -> Vec<String> {
 #[wasm_bindgen]
 pub fn convert(text: &str, in_format: &str, out_format: &str) -> Result<String, JsValue> {
     let circuit = parse_dispatch(in_format, text).map_err(|e| JsValue::from_str(&e.to_string()))?;
-    Ok(write_dispatch(out_format, &circuit))
+    write_dispatch(out_format, &circuit).map_err(|e| JsValue::from_str(&e.to_string()))
 }
 
 /// Parse `text` and return the IR as JSON.

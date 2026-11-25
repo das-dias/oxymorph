@@ -1130,32 +1130,6 @@ fn format_param_value(pval: &ParameterValue, resolve: Option<Resolve>) -> String
     }
 }
 
-/// `text` as a Verilog string literal: Python's `json.dumps` (`\\`, `\"`, `\n` escaped,
-/// non-ASCII as `\uXXXX`).
-fn verilog_string(text: &str) -> String {
-    let mut quoted = String::from("\"");
-    for character in text.chars() {
-        match character {
-            '"' => quoted.push_str("\\\""),
-            '\\' => quoted.push_str("\\\\"),
-            '\n' => quoted.push_str("\\n"),
-            '\r' => quoted.push_str("\\r"),
-            '\t' => quoted.push_str("\\t"),
-            '\u{8}' => quoted.push_str("\\b"),
-            '\u{c}' => quoted.push_str("\\f"),
-            ' '..='\u{7f}' => quoted.push(character),
-            _ => {
-                let mut units = [0u16; 2];
-                for unit in character.encode_utf16(&mut units) {
-                    quoted.push_str(&format!("\\u{unit:04x}"));
-                }
-            }
-        }
-    }
-    quoted.push('"');
-    quoted
-}
-
 /// The Verilog-A macros as body text; the rest travel in attributes (`foreign`).
 fn verilog_macro_lines(macros: &[Macro]) -> Vec<String> {
     let mut verilog = Vec::new();
@@ -1182,9 +1156,9 @@ fn foreign(macros: &[Macro]) -> String {
         if !is_verilog(code) {
             entries.push(format!(
                 "{{\"name\": {}, \"language\": {}, \"body\": {}}}",
-                verilog_string(&code.name),
-                verilog_string(&code.language),
-                verilog_string(&code.body)
+                json_string(&code.name),
+                json_string(&code.language),
+                json_string(&code.body)
             ));
         }
     }
@@ -1210,17 +1184,17 @@ fn attributes(module: &Module, circuit: &Circuit) -> String {
         if !libraries.is_empty() {
             found.push(format!(
                 "spice_lib = {}",
-                verilog_string(&libraries.join("\n"))
+                json_string(&libraries.join("\n"))
             ));
         }
         let code = foreign(&circuit.macros);
         if !code.is_empty() {
-            found.push(format!("spice_code = {}", verilog_string(&code)));
+            found.push(format!("spice_code = {}", json_string(&code)));
         }
     }
     let code = foreign(&module.macros);
     if !code.is_empty() {
-        found.push(format!("spice_module_code = {}", verilog_string(&code)));
+        found.push(format!("spice_module_code = {}", json_string(&code)));
     }
     if found.is_empty() {
         String::new()
@@ -1500,7 +1474,7 @@ fn write_instance(
     // parity: kf-hdl-nets (`bus[m:l]` / `{…}` connections, `.p()` open, `\0 ` escapes)
     let connections = port_connections(reference, circuit, inst_nets, buses, plain_name);
     let attribute = match stimulus.and_then(primitive_file) {
-        Some(file) => format!("(* pwl_file = {} *) ", verilog_string(&file)),
+        Some(file) => format!("(* pwl_file = {} *) ", json_string(&file)),
         None => String::new(),
     };
     format!(

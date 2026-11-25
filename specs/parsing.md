@@ -136,7 +136,8 @@ Ported from kfnetlist 5924917, 9766e84, 1adb071, 5671e52, d94dc38:
 - Every simulation writer (SPICE family, Spectre, VAMS) leaves out instances with
   `properties["sim_skip"] == "1"` and params with `properties["role"] == "source"`,
   printing a reference to such a param as its value.
-- `write_dispatch` routes `hspice`, `xyce` and `spectre_spice` to their writers.
+- `write_dispatch` routes `hspice`, `xyce`, `spectre_spice` and `gsch` to their
+  writers; it returns `Result`, since only `write_gsch` can fail (R9).
 
 ## R8. Stimuli, PWL sources and open pins
 
@@ -241,3 +242,70 @@ b26cd6b, d5b82b2 (`decisions/0011`); `src/hdl.rs`, `src/formats/systemverilog.rs
   JSON can still cost up to instances × 1,000,000 pin names per port when written; a
   fallible `try_write_*` would bound that.
 
+## R9. `.gsch` schematics
+
+Ported from kfnetlist #37 (38d28f2, 6f4de17, 388ce69, 2ca12d5, ad5e31a, 8cc7b1d,
+78c0483, d377640, c71254b, b00947b, e82518b, 3c9ed93, b1153f6) and the gsch hunks of
+9766e84, 1adb071, 30a1621, 8f0a4b4 (`decisions/0011`); `src/formats/gsch/`, feature
+`gsch` (default):
+
+- A `.gsch` file (gdsfactory+ nyancir JSON, a flat `{key: entry}` map) has no
+  grammar. `parse_gsch(text, &GschOptions)` makes one module, `__top__` unless
+  `options.name` is set; `parse_dispatch("gsch", …)` uses the default options
+  (`sim` `ngspice`). JSON that does not parse is `Error::Parse`; a document that is
+  not an object, or an unknown `sim` (`ngspice`, `xyce`, `vacask`, any case), is
+  `Error::Validation`.
+- Connectivity: Mosaic `nets` maps, Livewire polylines (`terminals` in their three
+  PortRef forms), `net` entries and port markers; `via`/`taper` entries join every pin
+  that ends on them. A net takes its Mosaic name or net-entry name (`id`, `_id`, key),
+  else a polyline `net` or the `nets` name of a marker with an `attached_port`, when
+  nothing else has that name, else `net_<n>`; a lone pin is a net only under a Mosaic or net-entry name. Exposed markers
+  (no `variant`, `emitter`, `detector`) are the module's ports, in marker order; other
+  markers only name nets. An instance is named by its `name`, else its key, made unique
+  with `_<n>`. Pin domains come from the entry's `port_type`, the nyanlib port `type`,
+  then the `o<N>` rule, and propagate (R5).
+- Simulation view (nyancad's netlister): a device with Mosaic `nets` and a nyanlib
+  model entry (exact `implementation`, else the sim's language, else a SPICE library
+  VACASK loads with `lang=`) is its `spice-type` primitive or an `X` call, with the
+  entry's `port-order` and its `params` as expressions over the instance's props
+  (`role=source` params); Mosaic built-ins are R/C/L (`value` from
+  `resistance`/`capacitance`/`inductance`), D/M/Q (an open MOS bulk tied to `GND`) and
+  V/I sources, whose `dc`/`ac`/`tran` props are a `Stimulus` (a missing required
+  waveform field is `Error::Validation`). VACASK names R/C/L by InSpice's `sp_*`
+  models and writes D/M/Q's `m` as `$mfactor` (left out when 1). Other devices are
+  kept with `sim_skip`. Each used library is a LIB directive (the first of
+  `options.corners` it has, else its first section; control characters as spaces and
+  a trailing `\` dropped from the path, the section through `one_line`, so a deck keeps
+  them on one line) or an INCLUDE, once; a model
+  entry's inline `code` is a `Macro` (equal ones once). `ground_net` is `GND`; VACASK
+  sets `dialect`.
+- Stash: each instance keeps its raw entry (and the pin renames, tied pins, model
+  expressions, computed values and defaults) as `properties["__info__"]` JSON, the
+  module its port markers, wires, polylines and other entries, and the document its
+  inline `models`, all as Python's `json.dumps` writes them.
+- `write_gsch(&Circuit) -> Result<String, Error>` writes the top module back
+  (`json.dumps(…, indent=2)` text): an unedited schematic is JSON-equal to its file.
+  Stashed entries keep their keys and layout; edits are written as Mosaic `nets` (on a
+  Livewire entry only for an edited pin), rebound markers, net entries limited to the
+  pins still on their net, and polylines dropped once their ends are on different
+  nets. A param edited back to a prop is written in the prop's spelling; a param
+  derived from a model expression or computed by the simulation view has no prop, so
+  editing it is `Error::Validation` (`M1: 'w' is derived from model expression
+  'width * 1e-6'; edit 'width' instead`). A circuit from another format is written as
+  Mosaic symbols on a grid (`ckt` + `model` for other masters, pins uppercased for
+  built-in symbols) with port markers and stimuli as source props.
+- `read_gsch(path, project_root, &GschOptions)` (not on wasm32) also reads the `.gsch`
+  schematics wired devices instantiate (a `model` ending in `.gsch` that is no library
+  model): each is a module named by its nyanlib `name` (else the file stem), with the
+  model's ports sorted by name and its prop defaults as header params; libraries and
+  macros of the hierarchy are gathered top first, and stimuli renamed after the
+  modules. Child paths resolve against `project_root` (default: the top file's
+  directory) with `oxymorph_schema::paths::resolve_file`; as in kfnetlist, an absolute
+  or `..` model path can leave the root. `models` default to the root's
+  `build/models.nyanlib`, else `models.nyanlib`. A missing child, two children with
+  one module name, a schematic that instantiates itself directly or through others
+  (kfnetlist stops there silently) and nesting deeper than 64 levels below the top
+  (`MAX_GSCH_DEPTH`) are `Error::Validation`.
+- Fixtures and nyancad goldens are in `tests/data/kf/gsch/`; the goldens were written
+  by nyancad + InSpice with kfnetlist's `golden/regen.py`, which stays kfnetlist-side
+  tooling.

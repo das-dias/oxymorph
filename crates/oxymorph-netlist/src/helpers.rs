@@ -403,6 +403,32 @@ pub fn format_si_value(pv: &PrefixedValue) -> String {
     format!("{}{}", num_str, prefix_to_si_suffix(pv.prefix))
 }
 
+/// `text` as Python's `json.dumps` writes a string: `\\`, `\"` and control characters
+/// escaped, anything outside printable ASCII as `\uXXXX` (a Verilog string literal too).
+pub fn json_string(text: &str) -> String {
+    let mut quoted = String::from("\"");
+    for character in text.chars() {
+        match character {
+            '"' => quoted.push_str("\\\""),
+            '\\' => quoted.push_str("\\\\"),
+            '\n' => quoted.push_str("\\n"),
+            '\r' => quoted.push_str("\\r"),
+            '\t' => quoted.push_str("\\t"),
+            '\u{8}' => quoted.push_str("\\b"),
+            '\u{c}' => quoted.push_str("\\f"),
+            ' '..='~' => quoted.push(character),
+            _ => {
+                let mut units = [0u16; 2];
+                for unit in character.encode_utf16(&mut units) {
+                    quoted.push_str(&format!("\\u{unit:04x}"));
+                }
+            }
+        }
+    }
+    quoted.push('"');
+    quoted
+}
+
 // ---------------------------------------------------------------------------
 // Signal domains
 // ---------------------------------------------------------------------------

@@ -42,9 +42,11 @@ pub enum Dialect {
     Vacask,
     SystemVerilog,
     Vams,
+    /// A `.gsch` prop: bare, like Spectre.
+    Gsch,
 }
 
-const DIALECT_NAMES: [(&str, Dialect); 7] = [
+const DIALECT_NAMES: [(&str, Dialect); 8] = [
     ("ngspice", Dialect::Ngspice),
     ("xyce", Dialect::Xyce),
     ("hspice", Dialect::Hspice),
@@ -52,6 +54,7 @@ const DIALECT_NAMES: [(&str, Dialect); 7] = [
     ("vacask", Dialect::Vacask),
     ("systemverilog", Dialect::SystemVerilog),
     ("vams", Dialect::Vams),
+    ("gsch", Dialect::Gsch),
 ];
 
 impl Dialect {
@@ -60,7 +63,11 @@ impl Dialect {
         match self {
             Dialect::Ngspice | Dialect::Xyce => ("{", "}"),
             Dialect::Hspice => ("'", "'"),
-            Dialect::Spectre | Dialect::Vacask | Dialect::SystemVerilog | Dialect::Vams => ("", ""),
+            Dialect::Spectre
+            | Dialect::Vacask
+            | Dialect::SystemVerilog
+            | Dialect::Vams
+            | Dialect::Gsch => ("", ""),
         }
     }
 }
