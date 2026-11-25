@@ -615,6 +615,7 @@ impl SpiceTransformer {
             .map(|pn| Port {
                 name: pn.clone(),
                 direction: PortDirection::Inout,
+                // parity: kf-signal-domains
                 domain: domain_of(pn),
                 ..Default::default()
             })
@@ -671,6 +672,7 @@ impl SpiceTransformer {
                         .map(|pn| Port {
                             name: pn.to_string(),
                             direction: PortDirection::Inout,
+                            // parity: kf-signal-domains
                             domain: domain_of(pn),
                             ..Default::default()
                         })

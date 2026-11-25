@@ -356,6 +356,7 @@ impl SpectreTransformer {
             .map(|pn| Port {
                 name: pn.clone(),
                 direction: PortDirection::Inout,
+                // parity: kf-signal-domains
                 domain: domain_of(pn),
                 ..Default::default()
             })
@@ -422,6 +423,7 @@ impl SpectreTransformer {
                         .map(|pn| Port {
                             name: pn.to_string(),
                             direction: PortDirection::Inout,
+                            // parity: kf-signal-domains
                             domain: domain_of(pn),
                             ..Default::default()
                         })
@@ -820,6 +822,10 @@ fn write_instance(
     let ext_mod = ext_by_name.get(r.module_name.as_str());
     let prefix = module_to_prefix(&r.module_name);
 
+    // parity: kf-device-pin-template
+    let complete_template = prefix
+        .and_then(device_port_template)
+        .filter(|template| has_every_pin(r, template, inst_nets));
     let port_order: Vec<String> = if prefix.is_some() && ext_mod.is_some() {
         ext_mod
             .unwrap()
@@ -831,11 +837,7 @@ fn write_instance(
         rm.ports.iter().map(|p| p.name.clone()).collect()
     } else if let Some(em) = ext_mod {
         em.ports.iter().map(|p| p.name.clone()).collect()
-    } else if let Some(template) = prefix
-        // parity: kf-device-pin-template
-        .and_then(device_port_template)
-        .filter(|template| has_every_pin(r, template, inst_nets))
-    {
+    } else if let Some(template) = complete_template {
         template.iter().map(|pin| pin.to_string()).collect()
     } else {
         infer_port_order(r, inst_nets)

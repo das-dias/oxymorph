@@ -22,6 +22,10 @@ required-features = ["spice", "hspice", "xyce", "spectre", "spectre_spice", "vam
 name = "kf_fixes"
 required-features = ["spice", "hspice", "xyce", "spectre", "spectre_spice", "vams"]
 
+[[example]]
+name = "dump_corpus"
+required-features = ["spice", "hspice", "xyce", "spectre", "spectre_spice", "vams"]
+
 [dependencies]
 oxymorph-schema = { path = "../oxymorph-schema" }
 lark-rs.workspace = true

@@ -79,9 +79,12 @@ Formats: `spice`, `hspice`, `xyce`, `spectre`, `spectre-spice`, `vams`
     features added beyond the vendored morphnet. Ported fixtures live under
     `crates/oxymorph-netlist/tests/data/kf/**`, with names mapped to oxymorph's per
     `decisions/0011` (YAML/JSON keys only; netlist text is copied byte-for-byte).
+  - R4 transforms (`TRANSFORMS` in `crates/oxymorph-netlist/tests/parity.rs`) —
+    rewrite the expected IR of every case for a systematic ported fix; each is
+    keyed by an R4 row.
   - `tests/corpus/overrides.json` — replaces the expected `json` / `writes[fmt]`
-    of named original-corpus cases that a ported fix changes; every entry names
-    an R4 row.
+    of named original-corpus cases that a case-specific ported fix changes; every
+    entry names an R4 row.
 - **R2.2 Extraction** — a one-time step per re-vendor (`tools/extract_oracle.py`),
   run with `uv` against the vendored Python, emitting committed fixtures under
   `tests/corpus/` and a provenance manifest. Core tests then run offline with no
@@ -109,19 +112,31 @@ Formats: `spice`, `hspice`, `xyce`, `spectre`, `spectre-spice`, `vams`
 
 Policy: reproduce upstream behavior exactly, including bugs
 (`decisions/0004`). The exception is a ported kfnetlist fix that changes an
-original-corpus expectation (`decisions/0011`): it is a `diverged` row, its
-cases are listed in `tests/corpus/overrides.json`, and the code carrying it is
-marked `// parity: <id>`. Such ids are `kf-<short-slug>`. An override's `json` and `writes[fmt]` replace the
-corpus values; when `json` is overridden the oracle protobuf (which encodes the old
-IR) is not compared for that case, while the protobuf round-trip of the parsed IR
-still is.
+original-corpus expectation (`decisions/0011`): it is a `diverged` row, and the
+code carrying it is marked `// parity: <id>`. Such ids are `kf-<short-slug>`.
+
+- **Systematic divergences are transforms.** A fix that changes many cases the
+  same way is a named function in `TRANSFORMS` (`tests/parity.rs`), keyed by its
+  R4 id. It rewrites the expected IR of every case, both the corpus `json` and the
+  IR decoded from the oracle protobuf, by calling the same helper the parser uses,
+  so the oracle protobuf stays compared on every case.
+- **Case-specific divergences are overrides.** An entry in
+  `tests/corpus/overrides.json` replaces the corpus `json` and/or `writes[fmt]` of
+  one case; when `json` is overridden the oracle protobuf (which encodes the old
+  IR) is not compared for that case, while the protobuf round-trip of the parsed
+  IR still is.
+
 `overrides_reference_r4_rows_and_name_existing_cases` fails if an override names
-an id that is not in this table or a case that is not in the corpus.
+an id that is not in this table or a case that is not in the corpus;
+`transforms_reference_r4_rows` fails if a transform's id is not in this table.
+Each new row is checked against kfnetlist with `tools/compare_kfnetlist.py`
+(runs kfnetlist `e596bb5` in an isolated `uv` env and reports per-case IR and
+writer diffs against oxymorph, names mapped; not run by `cargo test`).
 
 | id | upstream | symptom | our behavior | repro | status | ADR |
 |---|---|---|---|---|---|---|
-| kf-signal-domains | kfnetlist 1deb1e0 (#34) | every connection has domain `UNSPECIFIED` | a connection takes its net's domain: `WAVEGUIDE` when the net touches an `o<N>` terminal, else `ELECTRICAL` (`helpers::domain_of`); ports named `o<N>` are `WAVEGUIDE` | 190 cases in `tests/corpus/overrides.json` (IR only) | diverged | 0011 |
-| kf-device-pin-template | kfnetlist 1deb1e0 (#34), 0a5184b (#36) | a built-in device with no external-module declaration is written `M1 ? ? ...` (SPICE) or in inferred pin order (Spectre) | SPICE writes the device pin template order (`d g s b` for `M`); Spectre does too when the instance has every template pin, else infers the order | `vams/netlist/vams/inverter_with_models.vams` (writes; its IR also carries kf-signal-domains) | diverged | 0011 |
+| kf-signal-domains | kfnetlist 1deb1e0 (#34) | every connection has domain `UNSPECIFIED` | a connection takes its net's domain: `WAVEGUIDE` when the net touches an `o<N>` terminal, else `ELECTRICAL` (`helpers::domain_of`); ports named `o<N>` are `WAVEGUIDE` | applied as a transform in `tests/parity.rs` (changes the IR of 191 corpus cases) | diverged | 0011 |
+| kf-device-pin-template | kfnetlist 1deb1e0 (#34), 0a5184b (#36) | a built-in device with no external-module declaration is written `M1 ? ? ...` (SPICE) or in inferred pin order (Spectre) | SPICE writes the device pin template order (`d g s b` for `M`); Spectre does too when the instance has every template pin, else infers the order | override of `vams/netlist/vams/inverter_with_models.vams` (`writes` for spice, hspice, xyce, spectre, spectre_spice) | diverged | 0011 |
 
 No upstream defect required reproduction: the port matched upstream on all 357
 corpus cases and all 2142 writer outputs before the kfnetlist divergences above.
@@ -137,18 +152,20 @@ Rows are added during extraction and updated as the port progresses.
 
 | format | parse cases | writer outputs | status |
 |---|---|---|---|---|
-| spice | 67 | 402 | all identical |
-| hspice | 78 | 468 | all identical |
-| xyce | 70 | 420 | all identical |
-| spectre | 27 | 162 | all identical |
-| spectre_spice | 74 | 444 | all identical |
-| vams | 41 | 246 | all identical |
-| **total** | **357** | **2142** | **100% identical** |
+| spice | 67 | 402 | all identical after R4 |
+| hspice | 78 | 468 | all identical after R4 |
+| xyce | 70 | 420 | all identical after R4 |
+| spectre | 27 | 162 | all identical after R4 |
+| spectre_spice | 74 | 444 | all identical after R4 |
+| vams | 41 | 246 | all identical after R4 |
+| **total** | **357** | **2142** | **100% identical after R4** |
 
-Protobuf interchange (message-equal after decode): **357 / 357**.
+Protobuf interchange (message-equal after decode and R4 transforms): **357 / 357**.
 
-Since the kfnetlist divergences in R4, 191 of these cases compare against
-`tests/corpus/overrides.json` instead; their oracle protobuf is not compared.
+"After R4": the expected IR of every case passes through the R4 transforms
+(`kf-signal-domains` changes 191 cases), and 5 writer outputs of one case
+(`vams/netlist/vams/inverter_with_models.vams`) compare against
+`tests/corpus/overrides.json` (`kf-device-pin-template`).
 
 The writer count is each parsed circuit written back in every format. Generated by
 `tools/extract_oracle.py`; the live binding check

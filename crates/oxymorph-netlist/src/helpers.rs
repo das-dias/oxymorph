@@ -256,7 +256,7 @@ pub fn net_map_to_connections(net_map: &NetMap) -> Vec<Connection> {
 }
 
 /// A net touching any waveguide terminal is a waveguide net.
-fn net_domain(refs: &[PortReference]) -> SignalDomain {
+pub fn net_domain(refs: &[PortReference]) -> SignalDomain {
     for port_reference in refs {
         if domain_of(&port_reference.port_name) == SignalDomain::Waveguide {
             return SignalDomain::Waveguide;

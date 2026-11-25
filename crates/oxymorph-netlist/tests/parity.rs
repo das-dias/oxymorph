@@ -1,8 +1,56 @@
 //! Parity against the committed oracle corpus (`tests/corpus/cases.json`).
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 
-use oxymorph_schema::Circuit;
+use oxymorph_netlist::helpers::{domain_of, net_domain};
+use oxymorph_schema::{Circuit, PortReference};
+
+type Transform = fn(&mut Circuit);
+
+/// Systematic divergences: an R4 id and the function that turns the oracle's IR into the
+/// IR we now produce. Applied to the expected IR of every case (corpus `json` and the
+/// decoded oracle protobuf). Case-specific divergences are overrides instead.
+const TRANSFORMS: &[(&str, Transform)] = &[("kf-signal-domains", apply_signal_domains)];
+
+/// kf-signal-domains: ports take `domain_of` their name; a connection takes its net's domain.
+fn apply_signal_domains(circuit: &mut Circuit) {
+    for ext_module in &mut circuit.ext_modules {
+        for port in &mut ext_module.ports {
+            port.domain = domain_of(&port.name);
+        }
+    }
+    for module in &mut circuit.modules {
+        for port in &mut module.ports {
+            port.domain = domain_of(&port.name);
+        }
+        let mut pins_by_net: HashMap<String, Vec<PortReference>> = HashMap::new();
+        for connection in &module.connections {
+            let pins = pins_by_net.entry(connection.name.clone()).or_default();
+            for port_reference in [&connection.source, &connection.target]
+                .into_iter()
+                .flatten()
+            {
+                pins.push(port_reference.clone());
+            }
+        }
+        for connection in &mut module.connections {
+            connection.domain = net_domain(&pins_by_net[&connection.name]);
+        }
+    }
+}
+
+fn apply_transforms(circuit: &mut Circuit) {
+    for (_, transform) in TRANSFORMS {
+        transform(circuit);
+    }
+}
+
+fn transformed_json(json: &serde_json::Value) -> serde_json::Value {
+    let mut circuit = Circuit::from_json(&json.to_string()).expect("expected IR is a circuit");
+    apply_transforms(&mut circuit);
+    serde_json::from_str(&circuit.to_json().unwrap()).unwrap()
+}
 
 fn hex_decode(s: &str) -> Vec<u8> {
     (0..s.len())
@@ -64,22 +112,26 @@ fn case_key(case: &serde_json::Value) -> String {
 
 /// Problems with the overrides: an `r4` id missing from the R4 table of `parity_md`,
 /// or a key that is not a corpus case.
-fn check_overrides(
-    overrides: &serde_json::Value,
-    parity_md: &str,
-    case_keys: &[String],
-) -> Vec<String> {
+fn r4_ids(parity_md: &str) -> Vec<&str> {
     let r4_section = parity_md
         .split("## R4.")
         .nth(1)
         .and_then(|rest| rest.split("\n## ").next())
         .unwrap_or("");
-    let r4_ids: Vec<&str> = r4_section
+    r4_section
         .lines()
         .filter(|line| line.starts_with('|'))
         .filter_map(|line| line.split('|').nth(1))
         .map(str::trim)
-        .collect();
+        .collect()
+}
+
+fn check_overrides(
+    overrides: &serde_json::Value,
+    parity_md: &str,
+    case_keys: &[String],
+) -> Vec<String> {
+    let r4_ids = r4_ids(parity_md);
 
     let mut problems = Vec::new();
     for (key, entry) in overrides.as_object().expect("overrides are an object") {
@@ -171,6 +223,41 @@ fn overrides_reference_r4_rows_and_name_existing_cases() {
 }
 
 #[test]
+fn transforms_reference_r4_rows() {
+    let parity_md = std::fs::read_to_string(parity_md_path()).expect("parity spec exists");
+    let known_ids = r4_ids(&parity_md);
+    for (id, _) in TRANSFORMS {
+        assert!(
+            known_ids.contains(id),
+            "transform {id} is not in specs/parity.md R4"
+        );
+    }
+}
+
+#[test]
+fn signal_domain_transform_follows_the_nets() {
+    let mut circuit =
+        oxymorph_netlist::parse_spice(".subckt top o1 e1\nX1 o1 e1 cell\n.ends top\n").unwrap();
+    for connection in &mut circuit.modules[0].connections {
+        connection.domain = oxymorph_schema::SignalDomain::Unspecified;
+    }
+    let mut transformed = circuit.clone();
+    apply_signal_domains(&mut transformed);
+    let domains: Vec<(&str, oxymorph_schema::SignalDomain)> = transformed.modules[0]
+        .connections
+        .iter()
+        .map(|connection| (connection.name.as_str(), connection.domain))
+        .collect();
+    assert_eq!(
+        domains,
+        [
+            ("o1", oxymorph_schema::SignalDomain::Waveguide),
+            ("e1", oxymorph_schema::SignalDomain::Electrical)
+        ]
+    );
+}
+
+#[test]
 fn parse_and_write_match_the_oracle() {
     let cases = load_cases();
     let overrides = load_overrides();
@@ -179,7 +266,6 @@ fn parse_and_write_match_the_oracle() {
     let mut parse_checked = 0usize;
     let mut write_checked = 0usize;
     let mut proto_checked = 0usize;
-    let mut proto_overridden = 0usize;
 
     for case in &cases {
         let format = case["format"].as_str().unwrap();
@@ -198,7 +284,7 @@ fn parse_and_write_match_the_oracle() {
         parse_checked += 1;
 
         let actual: serde_json::Value = serde_json::from_str(&circuit.to_json().unwrap()).unwrap();
-        if &actual != expected.json {
+        if actual != transformed_json(expected.json) {
             failures.push(format!("{format}/{name}: IR differs from oracle"));
         }
 
@@ -206,16 +292,18 @@ fn parse_and_write_match_the_oracle() {
             if expected.compare_oracle_proto {
                 let bytes = hex_decode(proto_hex);
                 match Circuit::from_proto_bytes(&bytes) {
-                    Ok(c) if c == circuit => proto_checked += 1,
-                    Ok(_) => {
-                        failures.push(format!("{format}/{name}: protobuf interchange differs"))
+                    Ok(mut oracle) => {
+                        apply_transforms(&mut oracle);
+                        if oracle == circuit {
+                            proto_checked += 1;
+                        } else {
+                            failures.push(format!("{format}/{name}: protobuf interchange differs"));
+                        }
                     }
                     Err(e) => {
                         failures.push(format!("{format}/{name}: protobuf decode failed: {e}"))
                     }
                 }
-            } else {
-                proto_overridden += 1;
             }
             match Circuit::from_proto_bytes(&circuit.to_proto_bytes()) {
                 Ok(c) if c == circuit => {}
@@ -234,8 +322,8 @@ fn parse_and_write_match_the_oracle() {
 
     assert!(parse_checked > 300, "corpus too small: {parse_checked}");
     assert!(
-        proto_checked + proto_overridden > 300,
-        "protobuf corpus too small: {proto_checked} checked, {proto_overridden} overridden"
+        proto_checked > 300,
+        "protobuf corpus too small: {proto_checked}"
     );
     if !failures.is_empty() {
         let shown: Vec<String> = failures.iter().take(40).cloned().collect();
