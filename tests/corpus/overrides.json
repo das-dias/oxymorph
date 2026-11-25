@@ -8,5 +8,1955 @@
    "spectre": "subckt cmos_inverter (in_ out vdd vss)\nM1 (out in_ vdd vdd) mosfet L=0.18u W=1u\nM2 (out in_ vss vss) mosfet L=0.18u W=0.5u\nends cmos_inverter\n",
    "spectre_spice": "* untitled\n.subckt cmos_inverter in_ out vdd vss\nM1 out in_ vdd vdd L=0.18u W=1u\nM2 out in_ vss vss L=0.18u W=0.5u\n.ends cmos_inverter\n.end\n"
   }
+ },
+ "xyce/inline/12": {
+  "r4": "kf-spice-writer-dialects",
+  "writes": {
+   "spice": "* untitled\n.subckt myres in out R=1k\nR1 in out {R}\n.ends myres\n.end\n",
+   "hspice": "* untitled\n.subckt myres in out R=1k\nR1 in out {R}\n.ends myres\n.end\n",
+   "xyce": "* untitled\n.subckt myres in out PARAMS: R=1k\nR1 in out {R}\n.ends myres\n.end\n",
+   "spectre_spice": "* untitled\n.subckt myres in out R=1k\nR1 in out {R}\n.ends myres\n.end\n"
+  }
+ },
+ "hspice/inline/26": {
+  "r4": "kf-spice-writer-dialects",
+  "writes": {
+   "spice": "* untitled\n.subckt myres a b r=1k\nR1 a b 1k\n.ends myres\n.end\n",
+   "hspice": "* untitled\n.subckt myres a b r=1k\nR1 a b 1k\n.ends myres\n.end\n",
+   "xyce": "* untitled\n.subckt myres a b PARAMS: r=1k\nR1 a b 1k\n.ends myres\n.end\n",
+   "spectre_spice": "* untitled\n.subckt myres a b r=1k\nR1 a b 1k\n.ends myres\n.end\n"
+  }
+ },
+ "xyce/inline/48": {
+  "r4": "kf-spice-writer-dialects",
+  "writes": {
+   "spice": "* untitled\nX1 ? ? res r=10k\n.subckt res a b r=1k\nR1 a b {r}\n.ends res\n.dc X1:r 1k 100k 1k\n.print DC V(out)\n.end\n",
+   "hspice": "* untitled\nX1 ? ? res r=10k\n.subckt res a b r=1k\nR1 a b {r}\n.ends res\n.dc X1:r 1k 100k 1k\n.print DC V(out)\n.end\n",
+   "xyce": "* untitled\nX1 ? ? res PARAMS: r=10k\n.subckt res a b PARAMS: r=1k\nR1 a b {r}\n.ends res\n.dc X1:r 1k 100k 1k\n.print DC V(out)\n.end\n",
+   "spectre_spice": "* untitled\nX1 ? ? res r=10k\n.subckt res a b r=1k\nR1 a b {r}\n.ends res\n.dc X1:r 1k 100k 1k\n.print DC V(out)\n.end\n"
+  }
+ },
+ "spice/inline/52": {
+  "r4": "kf-expressions",
+  "json": {
+   "directives": [],
+   "ext_modules": [
+    {
+     "class_name": "",
+     "group_name": "",
+     "kind": 0,
+     "library_name": "",
+     "name": "resistor",
+     "parameters": [],
+     "ports": [
+      {
+       "direction": 0,
+       "discipline": "",
+       "domain": 1,
+       "name": "p",
+       "properties": {},
+       "width": 0
+      },
+      {
+       "direction": 0,
+       "discipline": "",
+       "domain": 1,
+       "name": "n",
+       "properties": {},
+       "width": 0
+      }
+     ],
+     "properties": {
+      "spice_prefix": "R"
+     }
+    }
+   ],
+   "libraries": {},
+   "modules": [
+    {
+     "buses": [],
+     "class_name": "",
+     "connections": [
+      {
+       "domain": 1,
+       "name": "a",
+       "properties": {},
+       "source": {
+        "instance_name": "",
+        "port_name": "a"
+       },
+       "target": {
+        "instance_name": "R1",
+        "port_name": "p"
+       },
+       "weight": 0
+      },
+      {
+       "domain": 1,
+       "name": "b",
+       "properties": {},
+       "source": {
+        "instance_name": "",
+        "port_name": "b"
+       },
+       "target": {
+        "instance_name": "R1",
+        "port_name": "n"
+       },
+       "weight": 0
+      }
+     ],
+     "directives": [],
+     "model_interfaces": [],
+     "module_references": [
+      {
+       "class_name": "",
+       "module_name": "resistor",
+       "name": "R1",
+       "parameters": [
+        {
+         "default_value": {
+          "model_ref": null,
+          "prefixed_value": {
+           "double_value": 10.0,
+           "prefix": 15
+          }
+         },
+         "description": "",
+         "name": "value",
+         "properties": {}
+        }
+       ],
+       "properties": {}
+      }
+     ],
+     "name": "test",
+     "parameters": [
+      {
+       "default_value": {
+        "expression": {
+         "binary": {
+          "lhs": {
+           "binary": {
+            "lhs": {
+             "reference": "vdd"
+            },
+            "op": 4,
+            "rhs": {
+             "literal": {
+              "double_value": 2.0,
+              "prefix": 0
+             }
+            }
+           }
+          },
+          "op": 3,
+          "rhs": {
+           "reference": "ratio"
+          }
+         }
+        },
+        "model_ref": null,
+        "prefixed_value": null
+       },
+       "description": "",
+       "name": "gain",
+       "properties": {}
+      }
+     ],
+     "ports": [
+      {
+       "direction": 0,
+       "discipline": "",
+       "domain": 1,
+       "name": "a",
+       "properties": {},
+       "width": 0
+      },
+      {
+       "direction": 0,
+       "discipline": "",
+       "domain": 1,
+       "name": "b",
+       "properties": {},
+       "width": 0
+      }
+     ],
+     "properties": {}
+    }
+   ],
+   "name": "",
+   "properties": {},
+   "simulation": null,
+   "top_module": "test"
+  },
+  "writes": {
+   "spice": "* untitled\n.subckt test a b gain={vdd / 2 * ratio}\nR1 a b 10k\n.ends test\n.end\n",
+   "hspice": "* untitled\n.subckt test a b gain='vdd / 2 * ratio'\nR1 a b 10k\n.ends test\n.end\n",
+   "xyce": "* untitled\n.subckt test a b PARAMS: gain={vdd / 2 * ratio}\nR1 a b 10k\n.ends test\n.end\n",
+   "spectre": "subckt test (a b) gain=vdd / 2 * ratio\nR1 (a b) resistor value=10k\nends test\n",
+   "vams": "module test (a, b);\n  inout a, b;\n  parameter gain = vdd / 2 * ratio;\n  resistor #(.value(10k)) R1 (.p(a), .n(b));\nendmodule\n",
+   "spectre_spice": "* untitled\n.subckt test a b gain={vdd / 2 * ratio}\nR1 a b 10k\n.ends test\n.end\n"
+  }
+ },
+ "hspice/inline/52": {
+  "r4": "kf-expressions",
+  "json": {
+   "directives": [],
+   "ext_modules": [
+    {
+     "class_name": "",
+     "group_name": "",
+     "kind": 0,
+     "library_name": "",
+     "name": "resistor",
+     "parameters": [],
+     "ports": [
+      {
+       "direction": 0,
+       "discipline": "",
+       "domain": 1,
+       "name": "p",
+       "properties": {},
+       "width": 0
+      },
+      {
+       "direction": 0,
+       "discipline": "",
+       "domain": 1,
+       "name": "n",
+       "properties": {},
+       "width": 0
+      }
+     ],
+     "properties": {
+      "spice_prefix": "R"
+     }
+    }
+   ],
+   "libraries": {},
+   "modules": [
+    {
+     "buses": [],
+     "class_name": "",
+     "connections": [
+      {
+       "domain": 1,
+       "name": "a",
+       "properties": {},
+       "source": {
+        "instance_name": "",
+        "port_name": "a"
+       },
+       "target": {
+        "instance_name": "R1",
+        "port_name": "p"
+       },
+       "weight": 0
+      },
+      {
+       "domain": 1,
+       "name": "b",
+       "properties": {},
+       "source": {
+        "instance_name": "",
+        "port_name": "b"
+       },
+       "target": {
+        "instance_name": "R1",
+        "port_name": "n"
+       },
+       "weight": 0
+      }
+     ],
+     "directives": [],
+     "model_interfaces": [],
+     "module_references": [
+      {
+       "class_name": "",
+       "module_name": "resistor",
+       "name": "R1",
+       "parameters": [
+        {
+         "default_value": {
+          "model_ref": null,
+          "prefixed_value": {
+           "double_value": 10.0,
+           "prefix": 15
+          }
+         },
+         "description": "",
+         "name": "value",
+         "properties": {}
+        }
+       ],
+       "properties": {}
+      }
+     ],
+     "name": "test",
+     "parameters": [
+      {
+       "default_value": {
+        "expression": {
+         "binary": {
+          "lhs": {
+           "binary": {
+            "lhs": {
+             "reference": "vdd"
+            },
+            "op": 4,
+            "rhs": {
+             "literal": {
+              "double_value": 2.0,
+              "prefix": 0
+             }
+            }
+           }
+          },
+          "op": 3,
+          "rhs": {
+           "reference": "ratio"
+          }
+         }
+        },
+        "model_ref": null,
+        "prefixed_value": null
+       },
+       "description": "",
+       "name": "gain",
+       "properties": {}
+      }
+     ],
+     "ports": [
+      {
+       "direction": 0,
+       "discipline": "",
+       "domain": 1,
+       "name": "a",
+       "properties": {},
+       "width": 0
+      },
+      {
+       "direction": 0,
+       "discipline": "",
+       "domain": 1,
+       "name": "b",
+       "properties": {},
+       "width": 0
+      }
+     ],
+     "properties": {}
+    }
+   ],
+   "name": "",
+   "properties": {},
+   "simulation": null,
+   "top_module": "test"
+  },
+  "writes": {
+   "spice": "* untitled\n.subckt test a b gain={vdd / 2 * ratio}\nR1 a b 10k\n.ends test\n.end\n",
+   "hspice": "* untitled\n.subckt test a b gain='vdd / 2 * ratio'\nR1 a b 10k\n.ends test\n.end\n",
+   "xyce": "* untitled\n.subckt test a b PARAMS: gain={vdd / 2 * ratio}\nR1 a b 10k\n.ends test\n.end\n",
+   "spectre": "subckt test (a b) gain=vdd / 2 * ratio\nR1 (a b) resistor value=10k\nends test\n",
+   "vams": "module test (a, b);\n  inout a, b;\n  parameter gain = vdd / 2 * ratio;\n  resistor #(.value(10k)) R1 (.p(a), .n(b));\nendmodule\n",
+   "spectre_spice": "* untitled\n.subckt test a b gain={vdd / 2 * ratio}\nR1 a b 10k\n.ends test\n.end\n"
+  }
+ },
+ "xyce/inline/52": {
+  "r4": "kf-expressions",
+  "json": {
+   "directives": [],
+   "ext_modules": [
+    {
+     "class_name": "",
+     "group_name": "",
+     "kind": 0,
+     "library_name": "",
+     "name": "resistor",
+     "parameters": [],
+     "ports": [
+      {
+       "direction": 0,
+       "discipline": "",
+       "domain": 1,
+       "name": "p",
+       "properties": {},
+       "width": 0
+      },
+      {
+       "direction": 0,
+       "discipline": "",
+       "domain": 1,
+       "name": "n",
+       "properties": {},
+       "width": 0
+      }
+     ],
+     "properties": {
+      "spice_prefix": "R"
+     }
+    }
+   ],
+   "libraries": {},
+   "modules": [
+    {
+     "buses": [],
+     "class_name": "",
+     "connections": [
+      {
+       "domain": 1,
+       "name": "a",
+       "properties": {},
+       "source": {
+        "instance_name": "",
+        "port_name": "a"
+       },
+       "target": {
+        "instance_name": "R1",
+        "port_name": "p"
+       },
+       "weight": 0
+      },
+      {
+       "domain": 1,
+       "name": "b",
+       "properties": {},
+       "source": {
+        "instance_name": "",
+        "port_name": "b"
+       },
+       "target": {
+        "instance_name": "R1",
+        "port_name": "n"
+       },
+       "weight": 0
+      }
+     ],
+     "directives": [],
+     "model_interfaces": [],
+     "module_references": [
+      {
+       "class_name": "",
+       "module_name": "resistor",
+       "name": "R1",
+       "parameters": [
+        {
+         "default_value": {
+          "model_ref": null,
+          "prefixed_value": {
+           "double_value": 10.0,
+           "prefix": 15
+          }
+         },
+         "description": "",
+         "name": "value",
+         "properties": {}
+        }
+       ],
+       "properties": {}
+      }
+     ],
+     "name": "test",
+     "parameters": [
+      {
+       "default_value": {
+        "expression": {
+         "binary": {
+          "lhs": {
+           "binary": {
+            "lhs": {
+             "reference": "vdd"
+            },
+            "op": 4,
+            "rhs": {
+             "literal": {
+              "double_value": 2.0,
+              "prefix": 0
+             }
+            }
+           }
+          },
+          "op": 3,
+          "rhs": {
+           "reference": "ratio"
+          }
+         }
+        },
+        "model_ref": null,
+        "prefixed_value": null
+       },
+       "description": "",
+       "name": "gain",
+       "properties": {}
+      }
+     ],
+     "ports": [
+      {
+       "direction": 0,
+       "discipline": "",
+       "domain": 1,
+       "name": "a",
+       "properties": {},
+       "width": 0
+      },
+      {
+       "direction": 0,
+       "discipline": "",
+       "domain": 1,
+       "name": "b",
+       "properties": {},
+       "width": 0
+      }
+     ],
+     "properties": {}
+    }
+   ],
+   "name": "",
+   "properties": {},
+   "simulation": null,
+   "top_module": "test"
+  },
+  "writes": {
+   "spice": "* untitled\n.subckt test a b gain={vdd / 2 * ratio}\nR1 a b 10k\n.ends test\n.end\n",
+   "hspice": "* untitled\n.subckt test a b gain='vdd / 2 * ratio'\nR1 a b 10k\n.ends test\n.end\n",
+   "xyce": "* untitled\n.subckt test a b PARAMS: gain={vdd / 2 * ratio}\nR1 a b 10k\n.ends test\n.end\n",
+   "spectre": "subckt test (a b) gain=vdd / 2 * ratio\nR1 (a b) resistor value=10k\nends test\n",
+   "vams": "module test (a, b);\n  inout a, b;\n  parameter gain = vdd / 2 * ratio;\n  resistor #(.value(10k)) R1 (.p(a), .n(b));\nendmodule\n",
+   "spectre_spice": "* untitled\n.subckt test a b gain={vdd / 2 * ratio}\nR1 a b 10k\n.ends test\n.end\n"
+  }
+ },
+ "spectre_spice/inline/52": {
+  "r4": "kf-expressions",
+  "json": {
+   "directives": [],
+   "ext_modules": [
+    {
+     "class_name": "",
+     "group_name": "",
+     "kind": 0,
+     "library_name": "",
+     "name": "resistor",
+     "parameters": [],
+     "ports": [
+      {
+       "direction": 0,
+       "discipline": "",
+       "domain": 1,
+       "name": "p",
+       "properties": {},
+       "width": 0
+      },
+      {
+       "direction": 0,
+       "discipline": "",
+       "domain": 1,
+       "name": "n",
+       "properties": {},
+       "width": 0
+      }
+     ],
+     "properties": {
+      "spice_prefix": "R"
+     }
+    }
+   ],
+   "libraries": {},
+   "modules": [
+    {
+     "buses": [],
+     "class_name": "",
+     "connections": [
+      {
+       "domain": 1,
+       "name": "a",
+       "properties": {},
+       "source": {
+        "instance_name": "",
+        "port_name": "a"
+       },
+       "target": {
+        "instance_name": "R1",
+        "port_name": "p"
+       },
+       "weight": 0
+      },
+      {
+       "domain": 1,
+       "name": "b",
+       "properties": {},
+       "source": {
+        "instance_name": "",
+        "port_name": "b"
+       },
+       "target": {
+        "instance_name": "R1",
+        "port_name": "n"
+       },
+       "weight": 0
+      }
+     ],
+     "directives": [],
+     "model_interfaces": [],
+     "module_references": [
+      {
+       "class_name": "",
+       "module_name": "resistor",
+       "name": "R1",
+       "parameters": [
+        {
+         "default_value": {
+          "model_ref": null,
+          "prefixed_value": {
+           "double_value": 10.0,
+           "prefix": 15
+          }
+         },
+         "description": "",
+         "name": "value",
+         "properties": {}
+        }
+       ],
+       "properties": {}
+      }
+     ],
+     "name": "test",
+     "parameters": [
+      {
+       "default_value": {
+        "expression": {
+         "binary": {
+          "lhs": {
+           "binary": {
+            "lhs": {
+             "reference": "vdd"
+            },
+            "op": 4,
+            "rhs": {
+             "literal": {
+              "double_value": 2.0,
+              "prefix": 0
+             }
+            }
+           }
+          },
+          "op": 3,
+          "rhs": {
+           "reference": "ratio"
+          }
+         }
+        },
+        "model_ref": null,
+        "prefixed_value": null
+       },
+       "description": "",
+       "name": "gain",
+       "properties": {}
+      }
+     ],
+     "ports": [
+      {
+       "direction": 0,
+       "discipline": "",
+       "domain": 1,
+       "name": "a",
+       "properties": {},
+       "width": 0
+      },
+      {
+       "direction": 0,
+       "discipline": "",
+       "domain": 1,
+       "name": "b",
+       "properties": {},
+       "width": 0
+      }
+     ],
+     "properties": {}
+    }
+   ],
+   "name": "",
+   "properties": {},
+   "simulation": null,
+   "top_module": "test"
+  },
+  "writes": {
+   "spice": "* untitled\n.subckt test a b gain={vdd / 2 * ratio}\nR1 a b 10k\n.ends test\n.end\n",
+   "hspice": "* untitled\n.subckt test a b gain='vdd / 2 * ratio'\nR1 a b 10k\n.ends test\n.end\n",
+   "xyce": "* untitled\n.subckt test a b PARAMS: gain={vdd / 2 * ratio}\nR1 a b 10k\n.ends test\n.end\n",
+   "spectre": "subckt test (a b) gain=vdd / 2 * ratio\nR1 (a b) resistor value=10k\nends test\n",
+   "vams": "module test (a, b);\n  inout a, b;\n  parameter gain = vdd / 2 * ratio;\n  resistor #(.value(10k)) R1 (.p(a), .n(b));\nendmodule\n",
+   "spectre_spice": "* untitled\n.subckt test a b gain={vdd / 2 * ratio}\nR1 a b 10k\n.ends test\n.end\n"
+  }
+ },
+ "spice/inline/53": {
+  "r4": "kf-expressions",
+  "json": {
+   "directives": [],
+   "ext_modules": [
+    {
+     "class_name": "",
+     "group_name": "",
+     "kind": 0,
+     "library_name": "",
+     "name": "resistor",
+     "parameters": [],
+     "ports": [
+      {
+       "direction": 0,
+       "discipline": "",
+       "domain": 1,
+       "name": "p",
+       "properties": {},
+       "width": 0
+      },
+      {
+       "direction": 0,
+       "discipline": "",
+       "domain": 1,
+       "name": "n",
+       "properties": {},
+       "width": 0
+      }
+     ],
+     "properties": {
+      "spice_prefix": "R"
+     }
+    }
+   ],
+   "libraries": {},
+   "modules": [
+    {
+     "buses": [],
+     "class_name": "",
+     "connections": [
+      {
+       "domain": 1,
+       "name": "a",
+       "properties": {},
+       "source": {
+        "instance_name": "",
+        "port_name": "a"
+       },
+       "target": {
+        "instance_name": "R1",
+        "port_name": "p"
+       },
+       "weight": 0
+      },
+      {
+       "domain": 1,
+       "name": "b",
+       "properties": {},
+       "source": {
+        "instance_name": "",
+        "port_name": "b"
+       },
+       "target": {
+        "instance_name": "R1",
+        "port_name": "n"
+       },
+       "weight": 0
+      }
+     ],
+     "directives": [],
+     "model_interfaces": [],
+     "module_references": [
+      {
+       "class_name": "",
+       "module_name": "resistor",
+       "name": "R1",
+       "parameters": [
+        {
+         "default_value": {
+          "model_ref": null,
+          "prefixed_value": {
+           "double_value": 10.0,
+           "prefix": 15
+          }
+         },
+         "description": "",
+         "name": "value",
+         "properties": {}
+        }
+       ],
+       "properties": {}
+      }
+     ],
+     "name": "test",
+     "parameters": [
+      {
+       "default_value": {
+        "expression": {
+         "reference": "mystring"
+        },
+        "model_ref": null,
+        "prefixed_value": null
+       },
+       "description": "",
+       "name": "name",
+       "properties": {}
+      }
+     ],
+     "ports": [
+      {
+       "direction": 0,
+       "discipline": "",
+       "domain": 1,
+       "name": "a",
+       "properties": {},
+       "width": 0
+      },
+      {
+       "direction": 0,
+       "discipline": "",
+       "domain": 1,
+       "name": "b",
+       "properties": {},
+       "width": 0
+      }
+     ],
+     "properties": {}
+    }
+   ],
+   "name": "",
+   "properties": {},
+   "simulation": null,
+   "top_module": "test"
+  },
+  "writes": {
+   "spice": "* untitled\n.subckt test a b name=mystring\nR1 a b 10k\n.ends test\n.end\n",
+   "hspice": "* untitled\n.subckt test a b name=mystring\nR1 a b 10k\n.ends test\n.end\n",
+   "xyce": "* untitled\n.subckt test a b PARAMS: name=mystring\nR1 a b 10k\n.ends test\n.end\n",
+   "spectre": "subckt test (a b) name=mystring\nR1 (a b) resistor value=10k\nends test\n",
+   "vams": "module test (a, b);\n  inout a, b;\n  parameter name = mystring;\n  resistor #(.value(10k)) R1 (.p(a), .n(b));\nendmodule\n",
+   "spectre_spice": "* untitled\n.subckt test a b name=mystring\nR1 a b 10k\n.ends test\n.end\n"
+  }
+ },
+ "hspice/inline/53": {
+  "r4": "kf-expressions",
+  "json": {
+   "directives": [],
+   "ext_modules": [
+    {
+     "class_name": "",
+     "group_name": "",
+     "kind": 0,
+     "library_name": "",
+     "name": "resistor",
+     "parameters": [],
+     "ports": [
+      {
+       "direction": 0,
+       "discipline": "",
+       "domain": 1,
+       "name": "p",
+       "properties": {},
+       "width": 0
+      },
+      {
+       "direction": 0,
+       "discipline": "",
+       "domain": 1,
+       "name": "n",
+       "properties": {},
+       "width": 0
+      }
+     ],
+     "properties": {
+      "spice_prefix": "R"
+     }
+    }
+   ],
+   "libraries": {},
+   "modules": [
+    {
+     "buses": [],
+     "class_name": "",
+     "connections": [
+      {
+       "domain": 1,
+       "name": "a",
+       "properties": {},
+       "source": {
+        "instance_name": "",
+        "port_name": "a"
+       },
+       "target": {
+        "instance_name": "R1",
+        "port_name": "p"
+       },
+       "weight": 0
+      },
+      {
+       "domain": 1,
+       "name": "b",
+       "properties": {},
+       "source": {
+        "instance_name": "",
+        "port_name": "b"
+       },
+       "target": {
+        "instance_name": "R1",
+        "port_name": "n"
+       },
+       "weight": 0
+      }
+     ],
+     "directives": [],
+     "model_interfaces": [],
+     "module_references": [
+      {
+       "class_name": "",
+       "module_name": "resistor",
+       "name": "R1",
+       "parameters": [
+        {
+         "default_value": {
+          "model_ref": null,
+          "prefixed_value": {
+           "double_value": 10.0,
+           "prefix": 15
+          }
+         },
+         "description": "",
+         "name": "value",
+         "properties": {}
+        }
+       ],
+       "properties": {}
+      }
+     ],
+     "name": "test",
+     "parameters": [
+      {
+       "default_value": {
+        "expression": {
+         "reference": "mystring"
+        },
+        "model_ref": null,
+        "prefixed_value": null
+       },
+       "description": "",
+       "name": "name",
+       "properties": {}
+      }
+     ],
+     "ports": [
+      {
+       "direction": 0,
+       "discipline": "",
+       "domain": 1,
+       "name": "a",
+       "properties": {},
+       "width": 0
+      },
+      {
+       "direction": 0,
+       "discipline": "",
+       "domain": 1,
+       "name": "b",
+       "properties": {},
+       "width": 0
+      }
+     ],
+     "properties": {}
+    }
+   ],
+   "name": "",
+   "properties": {},
+   "simulation": null,
+   "top_module": "test"
+  },
+  "writes": {
+   "spice": "* untitled\n.subckt test a b name=mystring\nR1 a b 10k\n.ends test\n.end\n",
+   "hspice": "* untitled\n.subckt test a b name=mystring\nR1 a b 10k\n.ends test\n.end\n",
+   "xyce": "* untitled\n.subckt test a b PARAMS: name=mystring\nR1 a b 10k\n.ends test\n.end\n",
+   "spectre": "subckt test (a b) name=mystring\nR1 (a b) resistor value=10k\nends test\n",
+   "vams": "module test (a, b);\n  inout a, b;\n  parameter name = mystring;\n  resistor #(.value(10k)) R1 (.p(a), .n(b));\nendmodule\n",
+   "spectre_spice": "* untitled\n.subckt test a b name=mystring\nR1 a b 10k\n.ends test\n.end\n"
+  }
+ },
+ "xyce/inline/53": {
+  "r4": "kf-expressions",
+  "json": {
+   "directives": [],
+   "ext_modules": [
+    {
+     "class_name": "",
+     "group_name": "",
+     "kind": 0,
+     "library_name": "",
+     "name": "resistor",
+     "parameters": [],
+     "ports": [
+      {
+       "direction": 0,
+       "discipline": "",
+       "domain": 1,
+       "name": "p",
+       "properties": {},
+       "width": 0
+      },
+      {
+       "direction": 0,
+       "discipline": "",
+       "domain": 1,
+       "name": "n",
+       "properties": {},
+       "width": 0
+      }
+     ],
+     "properties": {
+      "spice_prefix": "R"
+     }
+    }
+   ],
+   "libraries": {},
+   "modules": [
+    {
+     "buses": [],
+     "class_name": "",
+     "connections": [
+      {
+       "domain": 1,
+       "name": "a",
+       "properties": {},
+       "source": {
+        "instance_name": "",
+        "port_name": "a"
+       },
+       "target": {
+        "instance_name": "R1",
+        "port_name": "p"
+       },
+       "weight": 0
+      },
+      {
+       "domain": 1,
+       "name": "b",
+       "properties": {},
+       "source": {
+        "instance_name": "",
+        "port_name": "b"
+       },
+       "target": {
+        "instance_name": "R1",
+        "port_name": "n"
+       },
+       "weight": 0
+      }
+     ],
+     "directives": [],
+     "model_interfaces": [],
+     "module_references": [
+      {
+       "class_name": "",
+       "module_name": "resistor",
+       "name": "R1",
+       "parameters": [
+        {
+         "default_value": {
+          "model_ref": null,
+          "prefixed_value": {
+           "double_value": 10.0,
+           "prefix": 15
+          }
+         },
+         "description": "",
+         "name": "value",
+         "properties": {}
+        }
+       ],
+       "properties": {}
+      }
+     ],
+     "name": "test",
+     "parameters": [
+      {
+       "default_value": {
+        "expression": {
+         "reference": "mystring"
+        },
+        "model_ref": null,
+        "prefixed_value": null
+       },
+       "description": "",
+       "name": "name",
+       "properties": {}
+      }
+     ],
+     "ports": [
+      {
+       "direction": 0,
+       "discipline": "",
+       "domain": 1,
+       "name": "a",
+       "properties": {},
+       "width": 0
+      },
+      {
+       "direction": 0,
+       "discipline": "",
+       "domain": 1,
+       "name": "b",
+       "properties": {},
+       "width": 0
+      }
+     ],
+     "properties": {}
+    }
+   ],
+   "name": "",
+   "properties": {},
+   "simulation": null,
+   "top_module": "test"
+  },
+  "writes": {
+   "spice": "* untitled\n.subckt test a b name=mystring\nR1 a b 10k\n.ends test\n.end\n",
+   "hspice": "* untitled\n.subckt test a b name=mystring\nR1 a b 10k\n.ends test\n.end\n",
+   "xyce": "* untitled\n.subckt test a b PARAMS: name=mystring\nR1 a b 10k\n.ends test\n.end\n",
+   "spectre": "subckt test (a b) name=mystring\nR1 (a b) resistor value=10k\nends test\n",
+   "vams": "module test (a, b);\n  inout a, b;\n  parameter name = mystring;\n  resistor #(.value(10k)) R1 (.p(a), .n(b));\nendmodule\n",
+   "spectre_spice": "* untitled\n.subckt test a b name=mystring\nR1 a b 10k\n.ends test\n.end\n"
+  }
+ },
+ "spectre_spice/inline/53": {
+  "r4": "kf-expressions",
+  "json": {
+   "directives": [],
+   "ext_modules": [
+    {
+     "class_name": "",
+     "group_name": "",
+     "kind": 0,
+     "library_name": "",
+     "name": "resistor",
+     "parameters": [],
+     "ports": [
+      {
+       "direction": 0,
+       "discipline": "",
+       "domain": 1,
+       "name": "p",
+       "properties": {},
+       "width": 0
+      },
+      {
+       "direction": 0,
+       "discipline": "",
+       "domain": 1,
+       "name": "n",
+       "properties": {},
+       "width": 0
+      }
+     ],
+     "properties": {
+      "spice_prefix": "R"
+     }
+    }
+   ],
+   "libraries": {},
+   "modules": [
+    {
+     "buses": [],
+     "class_name": "",
+     "connections": [
+      {
+       "domain": 1,
+       "name": "a",
+       "properties": {},
+       "source": {
+        "instance_name": "",
+        "port_name": "a"
+       },
+       "target": {
+        "instance_name": "R1",
+        "port_name": "p"
+       },
+       "weight": 0
+      },
+      {
+       "domain": 1,
+       "name": "b",
+       "properties": {},
+       "source": {
+        "instance_name": "",
+        "port_name": "b"
+       },
+       "target": {
+        "instance_name": "R1",
+        "port_name": "n"
+       },
+       "weight": 0
+      }
+     ],
+     "directives": [],
+     "model_interfaces": [],
+     "module_references": [
+      {
+       "class_name": "",
+       "module_name": "resistor",
+       "name": "R1",
+       "parameters": [
+        {
+         "default_value": {
+          "model_ref": null,
+          "prefixed_value": {
+           "double_value": 10.0,
+           "prefix": 15
+          }
+         },
+         "description": "",
+         "name": "value",
+         "properties": {}
+        }
+       ],
+       "properties": {}
+      }
+     ],
+     "name": "test",
+     "parameters": [
+      {
+       "default_value": {
+        "expression": {
+         "reference": "mystring"
+        },
+        "model_ref": null,
+        "prefixed_value": null
+       },
+       "description": "",
+       "name": "name",
+       "properties": {}
+      }
+     ],
+     "ports": [
+      {
+       "direction": 0,
+       "discipline": "",
+       "domain": 1,
+       "name": "a",
+       "properties": {},
+       "width": 0
+      },
+      {
+       "direction": 0,
+       "discipline": "",
+       "domain": 1,
+       "name": "b",
+       "properties": {},
+       "width": 0
+      }
+     ],
+     "properties": {}
+    }
+   ],
+   "name": "",
+   "properties": {},
+   "simulation": null,
+   "top_module": "test"
+  },
+  "writes": {
+   "spice": "* untitled\n.subckt test a b name=mystring\nR1 a b 10k\n.ends test\n.end\n",
+   "hspice": "* untitled\n.subckt test a b name=mystring\nR1 a b 10k\n.ends test\n.end\n",
+   "xyce": "* untitled\n.subckt test a b PARAMS: name=mystring\nR1 a b 10k\n.ends test\n.end\n",
+   "spectre": "subckt test (a b) name=mystring\nR1 (a b) resistor value=10k\nends test\n",
+   "vams": "module test (a, b);\n  inout a, b;\n  parameter name = mystring;\n  resistor #(.value(10k)) R1 (.p(a), .n(b));\nendmodule\n",
+   "spectre_spice": "* untitled\n.subckt test a b name=mystring\nR1 a b 10k\n.ends test\n.end\n"
+  }
+ },
+ "spice/inline/54": {
+  "r4": "kf-expressions",
+  "json": {
+   "directives": [],
+   "ext_modules": [
+    {
+     "class_name": "",
+     "group_name": "",
+     "kind": 0,
+     "library_name": "",
+     "name": "resistor",
+     "parameters": [],
+     "ports": [
+      {
+       "direction": 0,
+       "discipline": "",
+       "domain": 1,
+       "name": "p",
+       "properties": {},
+       "width": 0
+      },
+      {
+       "direction": 0,
+       "discipline": "",
+       "domain": 1,
+       "name": "n",
+       "properties": {},
+       "width": 0
+      }
+     ],
+     "properties": {
+      "spice_prefix": "R"
+     }
+    }
+   ],
+   "libraries": {},
+   "modules": [
+    {
+     "buses": [],
+     "class_name": "",
+     "connections": [
+      {
+       "domain": 1,
+       "name": "a",
+       "properties": {},
+       "source": {
+        "instance_name": "",
+        "port_name": "a"
+       },
+       "target": {
+        "instance_name": "R1",
+        "port_name": "p"
+       },
+       "weight": 0
+      },
+      {
+       "domain": 1,
+       "name": "b",
+       "properties": {},
+       "source": {
+        "instance_name": "",
+        "port_name": "b"
+       },
+       "target": {
+        "instance_name": "R1",
+        "port_name": "n"
+       },
+       "weight": 0
+      }
+     ],
+     "directives": [],
+     "model_interfaces": [],
+     "module_references": [
+      {
+       "class_name": "",
+       "module_name": "resistor",
+       "name": "R1",
+       "parameters": [
+        {
+         "default_value": {
+          "model_ref": null,
+          "prefixed_value": {
+           "double_value": 10.0,
+           "prefix": 15
+          }
+         },
+         "description": "",
+         "name": "value",
+         "properties": {}
+        }
+       ],
+       "properties": {}
+      }
+     ],
+     "name": "test",
+     "parameters": [
+      {
+       "default_value": {
+        "expression": {
+         "binary": {
+          "lhs": {
+           "literal": {
+            "double_value": 1.0,
+            "prefix": 15
+           }
+          },
+          "op": 1,
+          "rhs": {
+           "literal": {
+            "double_value": 2.0,
+            "prefix": 15
+           }
+          }
+         }
+        },
+        "model_ref": null,
+        "prefixed_value": null
+       },
+       "description": "",
+       "name": "r",
+       "properties": {}
+      }
+     ],
+     "ports": [
+      {
+       "direction": 0,
+       "discipline": "",
+       "domain": 1,
+       "name": "a",
+       "properties": {},
+       "width": 0
+      },
+      {
+       "direction": 0,
+       "discipline": "",
+       "domain": 1,
+       "name": "b",
+       "properties": {},
+       "width": 0
+      }
+     ],
+     "properties": {}
+    }
+   ],
+   "name": "",
+   "properties": {},
+   "simulation": null,
+   "top_module": "test"
+  },
+  "writes": {
+   "spice": "* untitled\n.subckt test a b r={1k + 2k}\nR1 a b 10k\n.ends test\n.end\n",
+   "hspice": "* untitled\n.subckt test a b r='1k + 2k'\nR1 a b 10k\n.ends test\n.end\n",
+   "xyce": "* untitled\n.subckt test a b PARAMS: r={1k + 2k}\nR1 a b 10k\n.ends test\n.end\n",
+   "spectre": "subckt test (a b) r=1k + 2k\nR1 (a b) resistor value=10k\nends test\n",
+   "vams": "module test (a, b);\n  inout a, b;\n  parameter r = 1k + 2k;\n  resistor #(.value(10k)) R1 (.p(a), .n(b));\nendmodule\n",
+   "spectre_spice": "* untitled\n.subckt test a b r={1k + 2k}\nR1 a b 10k\n.ends test\n.end\n"
+  }
+ },
+ "hspice/inline/54": {
+  "r4": "kf-expressions",
+  "json": {
+   "directives": [],
+   "ext_modules": [
+    {
+     "class_name": "",
+     "group_name": "",
+     "kind": 0,
+     "library_name": "",
+     "name": "resistor",
+     "parameters": [],
+     "ports": [
+      {
+       "direction": 0,
+       "discipline": "",
+       "domain": 1,
+       "name": "p",
+       "properties": {},
+       "width": 0
+      },
+      {
+       "direction": 0,
+       "discipline": "",
+       "domain": 1,
+       "name": "n",
+       "properties": {},
+       "width": 0
+      }
+     ],
+     "properties": {
+      "spice_prefix": "R"
+     }
+    }
+   ],
+   "libraries": {},
+   "modules": [
+    {
+     "buses": [],
+     "class_name": "",
+     "connections": [
+      {
+       "domain": 1,
+       "name": "a",
+       "properties": {},
+       "source": {
+        "instance_name": "",
+        "port_name": "a"
+       },
+       "target": {
+        "instance_name": "R1",
+        "port_name": "p"
+       },
+       "weight": 0
+      },
+      {
+       "domain": 1,
+       "name": "b",
+       "properties": {},
+       "source": {
+        "instance_name": "",
+        "port_name": "b"
+       },
+       "target": {
+        "instance_name": "R1",
+        "port_name": "n"
+       },
+       "weight": 0
+      }
+     ],
+     "directives": [],
+     "model_interfaces": [],
+     "module_references": [
+      {
+       "class_name": "",
+       "module_name": "resistor",
+       "name": "R1",
+       "parameters": [
+        {
+         "default_value": {
+          "model_ref": null,
+          "prefixed_value": {
+           "double_value": 10.0,
+           "prefix": 15
+          }
+         },
+         "description": "",
+         "name": "value",
+         "properties": {}
+        }
+       ],
+       "properties": {}
+      }
+     ],
+     "name": "test",
+     "parameters": [
+      {
+       "default_value": {
+        "expression": {
+         "binary": {
+          "lhs": {
+           "literal": {
+            "double_value": 1.0,
+            "prefix": 15
+           }
+          },
+          "op": 1,
+          "rhs": {
+           "literal": {
+            "double_value": 2.0,
+            "prefix": 15
+           }
+          }
+         }
+        },
+        "model_ref": null,
+        "prefixed_value": null
+       },
+       "description": "",
+       "name": "r",
+       "properties": {}
+      }
+     ],
+     "ports": [
+      {
+       "direction": 0,
+       "discipline": "",
+       "domain": 1,
+       "name": "a",
+       "properties": {},
+       "width": 0
+      },
+      {
+       "direction": 0,
+       "discipline": "",
+       "domain": 1,
+       "name": "b",
+       "properties": {},
+       "width": 0
+      }
+     ],
+     "properties": {}
+    }
+   ],
+   "name": "",
+   "properties": {},
+   "simulation": null,
+   "top_module": "test"
+  },
+  "writes": {
+   "spice": "* untitled\n.subckt test a b r={1k + 2k}\nR1 a b 10k\n.ends test\n.end\n",
+   "hspice": "* untitled\n.subckt test a b r='1k + 2k'\nR1 a b 10k\n.ends test\n.end\n",
+   "xyce": "* untitled\n.subckt test a b PARAMS: r={1k + 2k}\nR1 a b 10k\n.ends test\n.end\n",
+   "spectre": "subckt test (a b) r=1k + 2k\nR1 (a b) resistor value=10k\nends test\n",
+   "vams": "module test (a, b);\n  inout a, b;\n  parameter r = 1k + 2k;\n  resistor #(.value(10k)) R1 (.p(a), .n(b));\nendmodule\n",
+   "spectre_spice": "* untitled\n.subckt test a b r={1k + 2k}\nR1 a b 10k\n.ends test\n.end\n"
+  }
+ },
+ "xyce/inline/54": {
+  "r4": "kf-expressions",
+  "json": {
+   "directives": [],
+   "ext_modules": [
+    {
+     "class_name": "",
+     "group_name": "",
+     "kind": 0,
+     "library_name": "",
+     "name": "resistor",
+     "parameters": [],
+     "ports": [
+      {
+       "direction": 0,
+       "discipline": "",
+       "domain": 1,
+       "name": "p",
+       "properties": {},
+       "width": 0
+      },
+      {
+       "direction": 0,
+       "discipline": "",
+       "domain": 1,
+       "name": "n",
+       "properties": {},
+       "width": 0
+      }
+     ],
+     "properties": {
+      "spice_prefix": "R"
+     }
+    }
+   ],
+   "libraries": {},
+   "modules": [
+    {
+     "buses": [],
+     "class_name": "",
+     "connections": [
+      {
+       "domain": 1,
+       "name": "a",
+       "properties": {},
+       "source": {
+        "instance_name": "",
+        "port_name": "a"
+       },
+       "target": {
+        "instance_name": "R1",
+        "port_name": "p"
+       },
+       "weight": 0
+      },
+      {
+       "domain": 1,
+       "name": "b",
+       "properties": {},
+       "source": {
+        "instance_name": "",
+        "port_name": "b"
+       },
+       "target": {
+        "instance_name": "R1",
+        "port_name": "n"
+       },
+       "weight": 0
+      }
+     ],
+     "directives": [],
+     "model_interfaces": [],
+     "module_references": [
+      {
+       "class_name": "",
+       "module_name": "resistor",
+       "name": "R1",
+       "parameters": [
+        {
+         "default_value": {
+          "model_ref": null,
+          "prefixed_value": {
+           "double_value": 10.0,
+           "prefix": 15
+          }
+         },
+         "description": "",
+         "name": "value",
+         "properties": {}
+        }
+       ],
+       "properties": {}
+      }
+     ],
+     "name": "test",
+     "parameters": [
+      {
+       "default_value": {
+        "expression": {
+         "binary": {
+          "lhs": {
+           "literal": {
+            "double_value": 1.0,
+            "prefix": 15
+           }
+          },
+          "op": 1,
+          "rhs": {
+           "literal": {
+            "double_value": 2.0,
+            "prefix": 15
+           }
+          }
+         }
+        },
+        "model_ref": null,
+        "prefixed_value": null
+       },
+       "description": "",
+       "name": "r",
+       "properties": {}
+      }
+     ],
+     "ports": [
+      {
+       "direction": 0,
+       "discipline": "",
+       "domain": 1,
+       "name": "a",
+       "properties": {},
+       "width": 0
+      },
+      {
+       "direction": 0,
+       "discipline": "",
+       "domain": 1,
+       "name": "b",
+       "properties": {},
+       "width": 0
+      }
+     ],
+     "properties": {}
+    }
+   ],
+   "name": "",
+   "properties": {},
+   "simulation": null,
+   "top_module": "test"
+  },
+  "writes": {
+   "spice": "* untitled\n.subckt test a b r={1k + 2k}\nR1 a b 10k\n.ends test\n.end\n",
+   "hspice": "* untitled\n.subckt test a b r='1k + 2k'\nR1 a b 10k\n.ends test\n.end\n",
+   "xyce": "* untitled\n.subckt test a b PARAMS: r={1k + 2k}\nR1 a b 10k\n.ends test\n.end\n",
+   "spectre": "subckt test (a b) r=1k + 2k\nR1 (a b) resistor value=10k\nends test\n",
+   "vams": "module test (a, b);\n  inout a, b;\n  parameter r = 1k + 2k;\n  resistor #(.value(10k)) R1 (.p(a), .n(b));\nendmodule\n",
+   "spectre_spice": "* untitled\n.subckt test a b r={1k + 2k}\nR1 a b 10k\n.ends test\n.end\n"
+  }
+ },
+ "spectre_spice/inline/54": {
+  "r4": "kf-expressions",
+  "json": {
+   "directives": [],
+   "ext_modules": [
+    {
+     "class_name": "",
+     "group_name": "",
+     "kind": 0,
+     "library_name": "",
+     "name": "resistor",
+     "parameters": [],
+     "ports": [
+      {
+       "direction": 0,
+       "discipline": "",
+       "domain": 1,
+       "name": "p",
+       "properties": {},
+       "width": 0
+      },
+      {
+       "direction": 0,
+       "discipline": "",
+       "domain": 1,
+       "name": "n",
+       "properties": {},
+       "width": 0
+      }
+     ],
+     "properties": {
+      "spice_prefix": "R"
+     }
+    }
+   ],
+   "libraries": {},
+   "modules": [
+    {
+     "buses": [],
+     "class_name": "",
+     "connections": [
+      {
+       "domain": 1,
+       "name": "a",
+       "properties": {},
+       "source": {
+        "instance_name": "",
+        "port_name": "a"
+       },
+       "target": {
+        "instance_name": "R1",
+        "port_name": "p"
+       },
+       "weight": 0
+      },
+      {
+       "domain": 1,
+       "name": "b",
+       "properties": {},
+       "source": {
+        "instance_name": "",
+        "port_name": "b"
+       },
+       "target": {
+        "instance_name": "R1",
+        "port_name": "n"
+       },
+       "weight": 0
+      }
+     ],
+     "directives": [],
+     "model_interfaces": [],
+     "module_references": [
+      {
+       "class_name": "",
+       "module_name": "resistor",
+       "name": "R1",
+       "parameters": [
+        {
+         "default_value": {
+          "model_ref": null,
+          "prefixed_value": {
+           "double_value": 10.0,
+           "prefix": 15
+          }
+         },
+         "description": "",
+         "name": "value",
+         "properties": {}
+        }
+       ],
+       "properties": {}
+      }
+     ],
+     "name": "test",
+     "parameters": [
+      {
+       "default_value": {
+        "expression": {
+         "binary": {
+          "lhs": {
+           "literal": {
+            "double_value": 1.0,
+            "prefix": 15
+           }
+          },
+          "op": 1,
+          "rhs": {
+           "literal": {
+            "double_value": 2.0,
+            "prefix": 15
+           }
+          }
+         }
+        },
+        "model_ref": null,
+        "prefixed_value": null
+       },
+       "description": "",
+       "name": "r",
+       "properties": {}
+      }
+     ],
+     "ports": [
+      {
+       "direction": 0,
+       "discipline": "",
+       "domain": 1,
+       "name": "a",
+       "properties": {},
+       "width": 0
+      },
+      {
+       "direction": 0,
+       "discipline": "",
+       "domain": 1,
+       "name": "b",
+       "properties": {},
+       "width": 0
+      }
+     ],
+     "properties": {}
+    }
+   ],
+   "name": "",
+   "properties": {},
+   "simulation": null,
+   "top_module": "test"
+  },
+  "writes": {
+   "spice": "* untitled\n.subckt test a b r={1k + 2k}\nR1 a b 10k\n.ends test\n.end\n",
+   "hspice": "* untitled\n.subckt test a b r='1k + 2k'\nR1 a b 10k\n.ends test\n.end\n",
+   "xyce": "* untitled\n.subckt test a b PARAMS: r={1k + 2k}\nR1 a b 10k\n.ends test\n.end\n",
+   "spectre": "subckt test (a b) r=1k + 2k\nR1 (a b) resistor value=10k\nends test\n",
+   "vams": "module test (a, b);\n  inout a, b;\n  parameter r = 1k + 2k;\n  resistor #(.value(10k)) R1 (.p(a), .n(b));\nendmodule\n",
+   "spectre_spice": "* untitled\n.subckt test a b r={1k + 2k}\nR1 a b 10k\n.ends test\n.end\n"
+  }
+ },
+ "vams/inline/101": {
+  "r4": "kf-spice-writer-dialects",
+  "writes": {
+   "spice": "* untitled\n.subckt amp inp out vdd gnd gain=10\nR1 inp out r=1k\n.ends amp\n.end\n",
+   "hspice": "* untitled\n.subckt amp inp out vdd gnd gain=10\nR1 inp out r=1k\n.ends amp\n.end\n",
+   "xyce": "* untitled\n.subckt amp inp out vdd gnd PARAMS: gain=10\nR1 inp out r=1k\n.ends amp\n.end\n",
+   "spectre_spice": "* untitled\n.subckt amp inp out vdd gnd gain=10\nR1 inp out r=1k\n.ends amp\n.end\n"
+  }
+ },
+ "vams/inline/107": {
+  "r4": "kf-spice-writer-dialects",
+  "writes": {
+   "spice": "* untitled\n.subckt test a pi=3.14\n.ends test\n.end\n",
+   "hspice": "* untitled\n.subckt test a pi=3.14\n.ends test\n.end\n",
+   "xyce": "* untitled\n.subckt test a PARAMS: pi=3.14\n.ends test\n.end\n",
+   "spectre_spice": "* untitled\n.subckt test a pi=3.14\n.ends test\n.end\n"
+  }
+ },
+ "vams/inline/108": {
+  "r4": "kf-spice-writer-dialects",
+  "writes": {
+   "spice": "* untitled\n.subckt test a n=4\n.ends test\n.end\n",
+   "hspice": "* untitled\n.subckt test a n=4\n.ends test\n.end\n",
+   "xyce": "* untitled\n.subckt test a PARAMS: n=4\n.ends test\n.end\n",
+   "spectre_spice": "* untitled\n.subckt test a n=4\n.ends test\n.end\n"
+  }
+ },
+ "vams/inline/109": {
+  "r4": "kf-spice-writer-dialects",
+  "writes": {
+   "spice": "* untitled\n.subckt test a r=50\n.ends test\n.end\n",
+   "hspice": "* untitled\n.subckt test a r=50\n.ends test\n.end\n",
+   "xyce": "* untitled\n.subckt test a PARAMS: r=50\n.ends test\n.end\n",
+   "spectre_spice": "* untitled\n.subckt test a r=50\n.ends test\n.end\n"
+  }
+ },
+ "vams/inline/110": {
+  "r4": "kf-spice-writer-dialects",
+  "writes": {
+   "spice": "* untitled\n.subckt test a x=100\n.ends test\n.end\n",
+   "hspice": "* untitled\n.subckt test a x=100\n.ends test\n.end\n",
+   "xyce": "* untitled\n.subckt test a PARAMS: x=100\n.ends test\n.end\n",
+   "spectre_spice": "* untitled\n.subckt test a x=100\n.ends test\n.end\n"
+  }
+ },
+ "vams/inline/117": {
+  "r4": "kf-spice-writer-dialects",
+  "writes": {
+   "spice": "* untitled\n.subckt test a b r=1k\nR1 a b r=0\n.ends test\n.end\n",
+   "hspice": "* untitled\n.subckt test a b r=1k\nR1 a b r=0\n.ends test\n.end\n",
+   "xyce": "* untitled\n.subckt test a b PARAMS: r=1k\nR1 a b r=0\n.ends test\n.end\n",
+   "spectre_spice": "* untitled\n.subckt test a b r=1k\nR1 a b r=0\n.ends test\n.end\n"
+  }
+ },
+ "vams/inline/123": {
+  "r4": "kf-spice-writer-dialects",
+  "writes": {
+   "spice": "* untitled\n.subckt vsrc p n vdc=1\n.ends vsrc\n.end\n",
+   "hspice": "* untitled\n.subckt vsrc p n vdc=1\n.ends vsrc\n.end\n",
+   "xyce": "* untitled\n.subckt vsrc p n PARAMS: vdc=1\n.ends vsrc\n.end\n",
+   "spectre_spice": "* untitled\n.subckt vsrc p n vdc=1\n.ends vsrc\n.end\n"
+  }
  }
 }

@@ -57,3 +57,54 @@ Ported from kfnetlist #34 and #36 (`decisions/0011`):
   its pin-template order (`d g s b` for `M`); Spectre does so only when the
   instance has every template pin, else it infers the order from the
   connections.
+
+## R6. Parameter expressions
+
+Ported from kfnetlist d0daf3e, 1adb071, c12a71e, d94dc38 (`decisions/0011`);
+`crates/oxymorph-netlist/src/expression.rs`:
+
+- `parse_expression(text)` reads any dialect's expression text with one shared
+  grammar (`grammars/expression.lark`, LALR): SI-suffixed numbers, references,
+  unary/binary operators, comparisons, logic, calls and `?:`. One outer `{…}` or
+  `'…'` is stripped first; text that does not parse is kept as `raw`. Text that
+  could nest deeper than 128 levels (each parenthesised group and each operator
+  character counts) is rejected with `Error::Validation`; the parsers keep such a
+  value verbatim as `raw` instead.
+- `format_expression(expr, dialect, resolve, named)` prints canonical infix text
+  with minimal parentheses (`0.13 * 1e-6`). ngspice/Xyce wrap a compound
+  expression in `{…}`, HSPICE in `'…'`; Spectre, VACASK, SystemVerilog and VAMS
+  print it bare. A literal or reference is never wrapped. Raw text is wrapped only
+  when `named` (a `k=v` value) and not empty, already wrapped, or a bare word or
+  number. `resolve` substitutes a reference (or a word of raw text) once. Numbers
+  keep their SPICE SI suffix (SystemVerilog: plain, 12 significant digits); a
+  prefix without a SPICE suffix prints its bare mantissa (`format_si_value`).
+- SPICE, HSPICE and Xyce read `{…}`, `'…'` and bare identifiers; Spectre reads a
+  bare value (`w=2*l+1u`) up to the next `name=`, `;` or unmatched `)`. A number
+  stays `prefixed_value`, an identifier becomes a `reference`, anything else an
+  expression tree. `.param` / `parameters` directives and analysis options keep
+  the value as dialect text.
+- Xyce drops the `PARAMS:` keyword from X-call statements.
+- Spectre reads `include "p" section=s` as a `LIB` directive (`"p s"`) and puts a
+  `lang=` option in the directive name.
+
+## R7. Writer dialects
+
+Ported from kfnetlist 5924917, 9766e84, 1adb071, 5671e52, d94dc38:
+
+- `write_spice` (ngspice), `write_hspice`, `write_xyce` and `write_spectre_spice`
+  are separate writers over one SPICE implementation; expression params are
+  printed in the writer's dialect.
+- SPICE family: subckt params go on the `.subckt` header (Xyce: after `PARAMS:`,
+  also on X calls with params); an instance name gets its device letter when it
+  lacks it (`X` for a defined subckt, else the external module's
+  `spice_prefix`); a net named `properties["ground_net"]` is written as `0`; a
+  positional `value` expression is written verbatim, an empty raw expression is
+  not written.
+- Spectre: `properties["dialect"] == "vacask"` selects VACASK (instance names
+  lowercased, the `value` of R/C/L written as `r`/`c`/`l`, `ground 0` first when a
+  ground net is set); `ground_net` is node `0`; a `LIB` directive is written
+  `include "p" section=s`, plus the `lang=` option kept in its name.
+- Every simulation writer (SPICE family, Spectre, VAMS) leaves out instances with
+  `properties["sim_skip"] == "1"` and params with `properties["role"] == "source"`,
+  printing a reference to such a param as its value.
+- `write_dispatch` routes `hspice`, `xyce` and `spectre_spice` to their writers.

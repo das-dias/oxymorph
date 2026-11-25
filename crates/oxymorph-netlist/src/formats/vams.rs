@@ -6,6 +6,7 @@ use oxymorph_schema::*;
 use crate::ast::TreeTransform;
 use crate::engine::Engine;
 use crate::error::Error;
+use crate::expression::{format_expression, Dialect, Resolve};
 use crate::helpers::*;
 use crate::preprocess::preprocess_vams;
 
@@ -745,9 +746,13 @@ pub fn parse_vams(text: &str) -> Result<Circuit, Error> {
 // Writer
 // ---------------------------------------------------------------------------
 
-fn format_param_value(pval: &ParameterValue) -> String {
-    match &pval.prefixed_value {
-        Some(pv) => format_si_value(pv),
+fn format_param_value(pval: &ParameterValue, resolve: Option<Resolve>) -> String {
+    if let Some(pv) = &pval.prefixed_value {
+        return format_si_value(pv);
+    }
+    match &pval.expression {
+        // parity: kf-expressions
+        Some(expression) => format_expression(expression, Dialect::Vams, resolve, false),
         None => "0".to_string(),
     }
 }
@@ -860,7 +865,7 @@ fn write_module(
         let kw = if is_local { "localparam" } else { "parameter" };
         let ptype = param.properties.get("type").cloned().unwrap_or_default();
         let val = match &param.default_value {
-            Some(v) => format_param_value(v),
+            Some(v) => format_param_value(v, None),
             None => "0".to_string(),
         };
         let type_str = if ptype.is_empty() {
@@ -875,7 +880,7 @@ fn write_module(
         lines.push(format!("  ground {ground_net};"));
     }
 
-    let inst_nets = connections_to_instance_nets(&module.connections);
+    let inst_nets = connections_to_instance_nets(&module.connections, "");
     for r in &module.module_references {
         lines.push(write_instance(r, &inst_nets, ext_by_name, mod_by_name));
     }
@@ -893,18 +898,18 @@ fn write_instance(
     ext_by_name: &IndexMap<&str, &ExternalModule>,
     mod_by_name: &IndexMap<&str, &Module>,
 ) -> String {
-    let params_str = if r.parameters.is_empty() {
+    let (shown, sources) = sim_params(r);
+    let resolve = |name: &str| sources.resolve(name);
+    let params_str = if shown.is_empty() {
         String::new()
     } else {
-        let parts: Vec<String> = r
-            .parameters
-            .iter()
-            .filter_map(|p| {
-                p.default_value
-                    .as_ref()
-                    .map(|v| format!(".{}({})", p.name, format_param_value(v)))
-            })
-            .collect();
+        let mut parts: Vec<String> = Vec::new();
+        for parameter in shown {
+            if let Some(value) = &parameter.default_value {
+                let text = format_param_value(value, Some(&resolve));
+                parts.push(format!(".{}({text})", parameter.name));
+            }
+        }
         format!(" #({})", parts.join(", "))
     };
 

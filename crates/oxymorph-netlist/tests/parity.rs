@@ -77,7 +77,10 @@ fn parse(format: &str, text: &str) -> Result<Circuit, oxymorph_netlist::Error> {
 
 fn write(format: &str, c: &Circuit) -> String {
     match format {
-        "spice" | "hspice" | "xyce" | "spectre_spice" => oxymorph_netlist::write_spice(c),
+        "spice" => oxymorph_netlist::write_spice(c),
+        "hspice" => oxymorph_netlist::write_hspice(c),
+        "xyce" => oxymorph_netlist::write_xyce(c),
+        "spectre_spice" => oxymorph_netlist::write_spectre_spice(c),
         "spectre" => oxymorph_netlist::write_spectre(c),
         "vams" => oxymorph_netlist::write_vams(c),
         other => panic!("unknown format {other}"),

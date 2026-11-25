@@ -7,6 +7,7 @@ use oxymorph_schema::*;
 use crate::ast::TreeTransform;
 use crate::engine::Engine;
 use crate::error::Error;
+use crate::expression::{parameter_value, value_text, Dialect};
 use crate::helpers::*;
 use crate::preprocess::preprocess_spectre;
 
@@ -49,6 +50,32 @@ pub struct SubcktData {
 #[derive(Clone, Debug)]
 pub struct IncludeData {
     pub path: String,
+    pub section: String,
+    pub lang: String,
+}
+
+impl IncludeData {
+    /// `include "p" section=s` is a library include; `lang=` goes in `name`.
+    fn to_directive(&self) -> Directive {
+        let name = if self.lang.is_empty() {
+            String::new()
+        } else {
+            format!("lang={}", self.lang)
+        };
+        if self.section.is_empty() {
+            Directive {
+                kind: DirectiveKind::Include,
+                name,
+                value: self.path.clone(),
+            }
+        } else {
+            Directive {
+                kind: DirectiveKind::Lib,
+                name,
+                value: format!("{} {}", self.path, self.section),
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -81,6 +108,7 @@ pub enum Item {
     Str(String),
     Port(String, String),
     ParamKv(String, ParameterValue),
+    IncludeOption(String, String),
     Pval(ParameterValue),
     Instance(InstanceData),
     Model(ModelData),
@@ -96,13 +124,6 @@ fn tok(it: &Item) -> Option<&str> {
     match it {
         Item::Token(_, v) => Some(v),
         _ => None,
-    }
-}
-
-fn param_value_str(pval: &ParameterValue) -> String {
-    match &pval.prefixed_value {
-        Some(pv) => format_si_value(pv),
-        None => String::new(),
     }
 }
 
@@ -137,11 +158,9 @@ impl TreeTransform for SpectreTransformer {
     fn rule(&mut self, name: &str, items: Vec<Item>) -> Item {
         match name {
             "net_ref" => Item::Str(tok(&items[0]).unwrap_or("").to_string()),
-            "pvalue_number" => {
-                let v = tok(&items[0]).unwrap_or("");
-                Item::Pval(parse_parameter_number(v).unwrap_or_default())
-            }
-            "pvalue_ident" | "pvalue_string" => Item::Pval(ParameterValue::default()),
+            // parity: kf-expressions (a number, a name or a bare expression)
+            "pvalue_value" => Item::Pval(parameter_value(tok(&items[0]).unwrap_or(""))),
+            "pvalue_string" => Item::Pval(ParameterValue::default()),
             "param_assign" => {
                 let name = tok(&items[0]).unwrap_or("").to_string();
                 let value = match items.get(1) {
@@ -157,13 +176,32 @@ impl TreeTransform for SpectreTransformer {
             "instance_stmt" => self.instance_stmt(items),
             "model_stmt" => self.model_stmt(items),
             "parameters_stmt" => self.parameters_stmt(items),
+            // parity: kf-spectre-writer-dialects (`include "p" section=s lang=l`)
+            "include_opt" => Item::IncludeOption(
+                tok(&items[0]).unwrap_or("").to_string(),
+                tok(&items[1]).unwrap_or("").to_string(),
+            ),
             "include_stmt" => {
                 let path = tok(&items[0])
                     .unwrap_or("")
                     .trim_matches(|c| c == '"' || c == '\'');
-                Item::Include(IncludeData {
+                let mut include = IncludeData {
                     path: path.to_string(),
-                })
+                    section: String::new(),
+                    lang: String::new(),
+                };
+                for item in &items[1..] {
+                    match item {
+                        Item::IncludeOption(key, value) if key == "section" => {
+                            include.section = value.clone();
+                        }
+                        Item::IncludeOption(key, value) if key == "lang" => {
+                            include.lang = value.clone();
+                        }
+                        _ => {}
+                    }
+                }
+                Item::Include(include)
             }
             "save_stmt" => {
                 let variables = items
@@ -226,7 +264,7 @@ impl SpectreTransformer {
         {
             let mut options = IndexMap::new();
             for (k, v) in &params {
-                options.insert(k.clone(), param_value_str(v));
+                options.insert(k.clone(), value_text(v, Dialect::Spectre));
             }
             return Item::Analysis(AnalysisData {
                 kind: cell_name,
@@ -327,11 +365,7 @@ impl SpectreTransformer {
                         });
                     }
                 }
-                Item::Include(inc) => directives.push(Directive {
-                    kind: DirectiveKind::Include,
-                    value: inc.path.clone(),
-                    ..Default::default()
-                }),
+                Item::Include(inc) => directives.push(inc.to_directive()),
                 Item::List(list) => {
                     for sub in list {
                         if let Item::Instance(i) = sub {
@@ -522,17 +556,13 @@ impl SpectreTransformer {
                 Item::Instance(i) => top_instances.push(i.clone()),
                 Item::Analysis(a) => analyses.push(a.clone()),
                 Item::OutputReq(o) => output_requests.push(o.clone()),
-                Item::Include(inc) => directives.push(Directive {
-                    kind: DirectiveKind::Include,
-                    value: inc.path.clone(),
-                    ..Default::default()
-                }),
+                Item::Include(inc) => directives.push(inc.to_directive()),
                 Item::Params(p) => {
                     for (pname, pval) in &p.params {
                         directives.push(Directive {
                             kind: DirectiveKind::Param,
                             name: pname.clone(),
-                            value: param_value_str(pval),
+                            value: value_text(pval, Dialect::Spectre),
                         });
                     }
                 }
@@ -669,13 +699,6 @@ fn module_to_prefix(module: &str) -> Option<&'static str> {
     })
 }
 
-fn format_param_value(pval: &ParameterValue) -> String {
-    match &pval.prefixed_value {
-        Some(pv) => format_si_value(pv),
-        None => "0".to_string(),
-    }
-}
-
 fn analysis_kind_to_spectre(kind: AnalysisKind) -> &'static str {
     match kind {
         AnalysisKind::Op => "op",
@@ -687,63 +710,58 @@ fn analysis_kind_to_spectre(kind: AnalysisKind) -> &'static str {
     }
 }
 
-pub fn write_spectre(circuit: &Circuit) -> String {
-    let mut lines: Vec<String> = Vec::new();
+/// The netlist-wide settings of a Spectre write: the VACASK dialect
+/// (`properties["dialect"] == "vacask"`) and the net written as node `0`.
+struct SpectreStyle<'a> {
+    vacask: bool,
+    ground: &'a str,
+}
 
-    let ext_by_name: IndexMap<&str, &ExternalModule> = circuit
-        .ext_modules
-        .iter()
-        .map(|e| (e.name.as_str(), e))
-        .collect();
-    let mod_by_name: IndexMap<&str, &Module> = circuit
-        .modules
-        .iter()
-        .map(|m| (m.name.as_str(), m))
-        .collect();
-
-    // directives
-    let mut params: IndexMap<String, String> = IndexMap::new();
-    for d in &circuit.directives {
-        if d.kind == DirectiveKind::Include {
-            lines.push(format!("include \"{}\"", d.value));
-        } else if d.kind == DirectiveKind::Param {
-            params.insert(d.name.clone(), d.value.clone());
+impl SpectreStyle<'_> {
+    fn dialect(&self) -> Dialect {
+        if self.vacask {
+            Dialect::Vacask
+        } else {
+            Dialect::Spectre
         }
     }
-    if !params.is_empty() {
-        let assigns = params
-            .iter()
-            .map(|(k, v)| format!("{k}={v}"))
-            .collect::<Vec<_>>()
-            .join(" ");
-        lines.push(format!("parameters {assigns}"));
+}
+
+pub fn write_spectre(circuit: &Circuit) -> String {
+    let mut lines: Vec<String> = Vec::new();
+    // parity: kf-spectre-writer-dialects
+    let style = SpectreStyle {
+        vacask: circuit.properties.get("dialect").map(String::as_str) == Some("vacask"),
+        ground: circuit
+            .properties
+            .get("ground_net")
+            .map(String::as_str)
+            .unwrap_or(""),
+    };
+    if style.vacask && !style.ground.is_empty() {
+        lines.push("ground 0".to_string());
     }
+
+    let lookups = Lookups::of(circuit);
+
+    write_directives(&circuit.directives, &mut lines);
 
     for ext in &circuit.ext_modules {
         if let Some(model_type) = ext.properties.get("model_type") {
-            let param_strs: Vec<String> = ext
-                .parameters
-                .iter()
-                .filter_map(|p| {
-                    p.default_value
-                        .as_ref()
-                        .map(|v| format!("{}={}", p.name, format_param_value(v)))
-                })
-                .collect();
             lines.push(format!(
                 "model {} {} ({})",
                 ext.name,
                 model_type,
-                param_strs.join(" ")
+                named_params(&ext.parameters, style.dialect()).join(" ")
             ));
         }
     }
 
     for module in &circuit.modules {
         if module.name == "__top__" {
-            write_top_instances(module, &ext_by_name, &mod_by_name, &mut lines);
+            lines.extend(instance_lines(module, &lookups, &style));
         } else {
-            write_subckt(module, &ext_by_name, &mod_by_name, &mut lines);
+            write_subckt(module, &lookups, &style, &mut lines);
         }
     }
 
@@ -760,12 +778,42 @@ pub fn write_spectre(circuit: &Circuit) -> String {
     lines.join("\n")
 }
 
-fn write_subckt(
-    module: &Module,
-    ext_by_name: &IndexMap<&str, &ExternalModule>,
-    mod_by_name: &IndexMap<&str, &Module>,
-    lines: &mut Vec<String>,
-) {
+fn write_directives(directives: &[Directive], lines: &mut Vec<String>) {
+    let mut params: IndexMap<String, String> = IndexMap::new();
+    for d in directives {
+        match d.kind {
+            // parity: kf-spectre-writer-dialects (LIB packs "path section"; name may
+            // carry "lang=<dialect>")
+            DirectiveKind::Include | DirectiveKind::Lib => {
+                let (path, section) = d.value.rsplit_once(' ').unwrap_or(("", &d.value));
+                let mut parts = if d.kind == DirectiveKind::Lib && !path.is_empty() {
+                    let path = path.trim_matches(|c| c == '"' || c == '\'');
+                    vec![format!("include \"{path}\""), format!("section={section}")]
+                } else {
+                    vec![format!("include \"{}\"", d.value)]
+                };
+                if d.name.starts_with("lang=") {
+                    parts.push(d.name.clone());
+                }
+                lines.push(parts.join(" "));
+            }
+            DirectiveKind::Param => {
+                params.insert(d.name.clone(), d.value.clone());
+            }
+            _ => {}
+        }
+    }
+    if !params.is_empty() {
+        let assigns = params
+            .iter()
+            .map(|(k, v)| format!("{k}={v}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        lines.push(format!("parameters {assigns}"));
+    }
+}
+
+fn write_subckt(module: &Module, lookups: &Lookups, style: &SpectreStyle, lines: &mut Vec<String>) {
     let port_names = module
         .ports
         .iter()
@@ -773,15 +821,7 @@ fn write_subckt(
         .collect::<Vec<_>>()
         .join(" ");
 
-    let param_strs: Vec<String> = module
-        .parameters
-        .iter()
-        .filter_map(|p| {
-            p.default_value
-                .as_ref()
-                .map(|v| format!("{}={}", p.name, format_param_value(v)))
-        })
-        .collect();
+    let param_strs = named_params(&module.parameters, style.dialect());
     let params_suffix = if param_strs.is_empty() {
         String::new()
     } else {
@@ -792,34 +832,29 @@ fn write_subckt(
         "subckt {module_name} ({port_names}){params_suffix}",
         module_name = module.name
     ));
-
-    let inst_nets = connections_to_instance_nets(&module.connections);
-    for r in &module.module_references {
-        lines.push(write_instance(r, &inst_nets, ext_by_name, mod_by_name));
-    }
+    lines.extend(instance_lines(module, lookups, style));
     lines.push(format!("ends {}", module.name));
 }
 
-fn write_top_instances(
-    module: &Module,
-    ext_by_name: &IndexMap<&str, &ExternalModule>,
-    mod_by_name: &IndexMap<&str, &Module>,
-    lines: &mut Vec<String>,
-) {
-    let inst_nets = connections_to_instance_nets(&module.connections);
-    for r in &module.module_references {
-        lines.push(write_instance(r, &inst_nets, ext_by_name, mod_by_name));
+fn instance_lines(module: &Module, lookups: &Lookups, style: &SpectreStyle) -> Vec<String> {
+    let inst_nets = connections_to_instance_nets(&module.connections, style.ground);
+    let mut lines = Vec::new();
+    for reference in &module.module_references {
+        if !is_skipped(reference) {
+            lines.push(write_instance(reference, &inst_nets, lookups, style));
+        }
     }
+    lines
 }
 
 #[allow(clippy::unnecessary_unwrap)]
 fn write_instance(
     r: &ModuleReference,
     inst_nets: &IndexMap<(String, String), String>,
-    ext_by_name: &IndexMap<&str, &ExternalModule>,
-    mod_by_name: &IndexMap<&str, &Module>,
+    lookups: &Lookups,
+    style: &SpectreStyle,
 ) -> String {
-    let ext_mod = ext_by_name.get(r.module_name.as_str());
+    let ext_mod = lookups.ext_by_name.get(r.module_name.as_str());
     let prefix = module_to_prefix(&r.module_name);
 
     // parity: kf-device-pin-template
@@ -833,7 +868,7 @@ fn write_instance(
             .iter()
             .map(|p| p.name.clone())
             .collect()
-    } else if let Some(rm) = mod_by_name.get(r.module_name.as_str()) {
+    } else if let Some(rm) = lookups.mod_by_name.get(r.module_name.as_str()) {
         rm.ports.iter().map(|p| p.name.clone()).collect()
     } else if let Some(em) = ext_mod {
         em.ports.iter().map(|p| p.name.clone()).collect()
@@ -860,22 +895,37 @@ fn write_instance(
         .cloned()
         .unwrap_or_else(|| r.module_name.clone());
 
-    let param_strs: Vec<String> = r
-        .parameters
-        .iter()
-        .filter_map(|p| {
-            p.default_value
-                .as_ref()
-                .map(|v| format!("{}={}", p.name, format_param_value(v)))
-        })
-        .collect();
+    // parity: kf-spectre-writer-dialects (VACASK names the primary value of R/C/L
+    // after the device)
+    let value_name = match prefix {
+        Some(letter @ ("R" | "C" | "L")) if style.vacask => letter.to_lowercase(),
+        _ => "value".to_string(),
+    };
+    let (params, sources) = sim_params(r);
+    let resolve = |name: &str| sources.resolve(name);
+    let mut param_strs: Vec<String> = Vec::new();
+    for param in params {
+        if let Some(text) = param_text(param, style.dialect(), true, Some(&resolve)) {
+            let name = if param.name == "value" {
+                &value_name
+            } else {
+                &param.name
+            };
+            param_strs.push(format!("{name}={text}"));
+        }
+    }
     let params_text = if param_strs.is_empty() {
         String::new()
     } else {
         format!(" {}", param_strs.join(" "))
     };
 
-    format!("{} ({nets}) {cell_name}{params_text}", r.name)
+    let instance_name = if style.vacask {
+        r.name.to_lowercase()
+    } else {
+        r.name.clone()
+    };
+    format!("{instance_name} ({nets}) {cell_name}{params_text}")
 }
 
 fn has_every_pin(

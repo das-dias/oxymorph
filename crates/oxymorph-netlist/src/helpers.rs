@@ -5,10 +5,13 @@ use std::sync::OnceLock;
 
 use indexmap::IndexMap;
 use oxymorph_schema::{
-    AnalysisKind, Connection, OutputRequestKind, ParameterValue, PortReference, PrefixedValue,
-    SignalDomain, Siprefix,
+    AnalysisKind, Circuit, Connection, Expression, ExternalModule, Module, ModuleReference,
+    OutputRequestKind, Parameter, ParameterValue, PortReference, PrefixedValue, SignalDomain,
+    Siprefix,
 };
 use regex::Regex;
+
+use crate::expression::{format_expression, Dialect, Resolve};
 
 // ---------------------------------------------------------------------------
 // SI suffix <-> SIPrefix
@@ -74,6 +77,110 @@ pub fn device_prefix_to_module(prefix: &str) -> Option<&'static str> {
         "I" => "isource",
         _ => return None,
     })
+}
+
+// ---------------------------------------------------------------------------
+// Instance parameters as simulation writers see them
+// ---------------------------------------------------------------------------
+
+/// Instances flagged `sim_skip` are kept in the IR but not simulated.
+pub fn is_skipped(reference: &ModuleReference) -> bool {
+    reference.properties.get("sim_skip").map(String::as_str) == Some("1")
+}
+
+/// Written value of a parameter: its expression printed for `dialect` (raw text wrapped
+/// only when `named`; references through `resolve`), else its default as an SI number.
+/// None when there is nothing to write (no value, or empty raw text).
+pub fn param_text(
+    parameter: &Parameter,
+    dialect: Dialect,
+    named: bool,
+    resolve: Option<Resolve>,
+) -> Option<String> {
+    let value = parameter.default_value.as_ref()?;
+    match &value.expression {
+        Some(expression) if expression.raw.as_deref() == Some("") => None,
+        Some(expression) => Some(format_expression(expression, dialect, resolve, named)),
+        None => Some(match &value.prefixed_value {
+            Some(prefixed_value) => format_si_value(prefixed_value),
+            None => "0".to_string(),
+        }),
+    }
+}
+
+/// `name=value` for every parameter with something to write.
+pub fn named_params(parameters: &[Parameter], dialect: Dialect) -> Vec<String> {
+    let mut assignments = Vec::new();
+    for parameter in parameters {
+        if let Some(text) = param_text(parameter, dialect, true, None) {
+            assignments.push(format!("{}={text}", parameter.name));
+        }
+    }
+    assignments
+}
+
+/// Modules and external modules by name, shared by every instance line of a write.
+pub struct Lookups<'a> {
+    pub ext_by_name: IndexMap<&'a str, &'a ExternalModule>,
+    pub mod_by_name: IndexMap<&'a str, &'a Module>,
+}
+
+impl<'a> Lookups<'a> {
+    pub fn of(circuit: &'a Circuit) -> Self {
+        let mut ext_by_name = IndexMap::new();
+        for ext_module in &circuit.ext_modules {
+            ext_by_name.insert(ext_module.name.as_str(), ext_module);
+        }
+        let mut mod_by_name = IndexMap::new();
+        for module in &circuit.modules {
+            mod_by_name.insert(module.name.as_str(), module);
+        }
+        Self {
+            ext_by_name,
+            mod_by_name,
+        }
+    }
+}
+
+/// The source params of an instance (`properties["role"] == "source"`, e.g. a `.gsch`
+/// `width`): what its model expressions (`w = width * 1e-6`) read, not device params.
+pub struct SourceParams<'a> {
+    values: IndexMap<&'a str, &'a ParameterValue>,
+}
+
+impl SourceParams<'_> {
+    /// A reference to a source param printed as that param's value.
+    pub fn resolve(&self, name: &str) -> Option<Expression> {
+        let value = self.values.get(name)?;
+        if let Some(expression) = &value.expression {
+            return Some(expression.clone());
+        }
+        value
+            .prefixed_value
+            .as_ref()
+            .map(|prefixed_value| Expression {
+                literal: Some(prefixed_value.clone()),
+                ..Default::default()
+            })
+    }
+}
+
+fn is_source(parameter: &Parameter) -> bool {
+    parameter.properties.get("role").map(String::as_str) == Some("source")
+}
+
+/// The params of `reference` a simulator sees, and its source params.
+pub fn sim_params(reference: &ModuleReference) -> (Vec<&Parameter>, SourceParams<'_>) {
+    let mut shown = Vec::new();
+    let mut values = IndexMap::new();
+    for parameter in &reference.parameters {
+        if !is_source(parameter) {
+            shown.push(parameter);
+        } else if let Some(value) = &parameter.default_value {
+            values.insert(parameter.name.as_str(), value);
+        }
+    }
+    (shown, SourceParams { values })
 }
 
 // ---------------------------------------------------------------------------
@@ -265,22 +372,26 @@ pub fn net_domain(refs: &[PortReference]) -> SignalDomain {
     SignalDomain::Electrical
 }
 
+/// `(instance, port) -> net`; a net named `ground` (when not empty) is node `0`.
 pub fn connections_to_instance_nets(
     connections: &[Connection],
+    ground: &str,
 ) -> IndexMap<(String, String), String> {
     let mut mapping = IndexMap::new();
     for conn in connections {
+        let net_name = if !ground.is_empty() && conn.name == ground {
+            "0".to_string()
+        } else {
+            conn.name.clone()
+        };
         if let Some(s) = &conn.source {
             mapping.insert(
                 (s.instance_name.clone(), s.port_name.clone()),
-                conn.name.clone(),
+                net_name.clone(),
             );
         }
         if let Some(t) = &conn.target {
-            mapping.insert(
-                (t.instance_name.clone(), t.port_name.clone()),
-                conn.name.clone(),
-            );
+            mapping.insert((t.instance_name.clone(), t.port_name.clone()), net_name);
         }
     }
     mapping

@@ -56,6 +56,12 @@ pub fn write_dispatch(format: &str, circuit: &Circuit) -> String {
         "spectre" => write_spectre(circuit),
         #[cfg(feature = "vams")]
         "vams" => write_vams(circuit),
+        #[cfg(feature = "hspice")]
+        "hspice" => write_hspice(circuit),
+        #[cfg(feature = "xyce")]
+        "xyce" => write_xyce(circuit),
+        #[cfg(feature = "spectre_spice")]
+        "spectre_spice" => write_spectre_spice(circuit),
         #[cfg(feature = "spice")]
         _ => write_spice(circuit),
         #[cfg(not(feature = "spice"))]
