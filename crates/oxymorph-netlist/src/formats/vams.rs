@@ -682,6 +682,7 @@ impl VamsTransformer<'_> {
                 _ => {}
             }
         }
+        check_unique_ports(&module_name, &port_names)?;
 
         let mut port_dirs: IndexMap<String, PortDirection> = IndexMap::new();
         let mut types: IndexMap<String, String> = IndexMap::new();

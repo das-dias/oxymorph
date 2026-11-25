@@ -879,6 +879,32 @@ fn hdl_budget_bounds_amplification() {
     assert!(parse_vams_with(SWITCH_VAMS, &simulation).is_ok());
 }
 
+/// A header port named twice would expand its bits once per occurrence: both parsers
+/// refuse it (kfnetlist keeps duplicates).
+#[test]
+fn duplicate_header_ports_are_an_error() {
+    let repeated = vec!["a"; 150];
+    let names = repeated.join(", ");
+    let vams = format!("module c ({names});\n  inout [9999:0] a;\nendmodule\n");
+    let systemverilog = [
+        format!("module c ({names});\n  inout [9999:0] a;\nendmodule\n"),
+        "module c (inout [3:0] a, b, a);\nendmodule\n".to_string(),
+    ];
+    expect_duplicate_port(parse_vams(&vams));
+    for text in &systemverilog {
+        expect_duplicate_port(parse_systemverilog(text, &HdlOptions::default()));
+    }
+}
+
+fn expect_duplicate_port(result: Result<Circuit, Error>) {
+    match result {
+        Err(Error::Validation(message)) => {
+            assert!(message.contains("port 'a' appears twice"), "{message}")
+        }
+        other => panic!("expected a duplicate-port error, got {other:?}"),
+    }
+}
+
 /// IR from untrusted JSON: a port wider than the cap, or with a range no `i64` walk
 /// should cover, is written as a scalar, quickly and without a panic.
 #[test]

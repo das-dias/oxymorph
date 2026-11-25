@@ -500,6 +500,7 @@ impl SystemVerilogTransformer<'_> {
         }
         let mut declarations: IndexMap<String, Declarations> = IndexMap::new();
         for (name, module) in &mut modules {
+            check_unique_ports(name, &module.port_names())?;
             declarations.insert(name.clone(), module.declarations(&mut self.budget)?);
         }
         let mut built = Vec::new();

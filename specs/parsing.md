@@ -215,8 +215,12 @@ b26cd6b, d5b82b2 (`decisions/0011`); `src/hdl.rs`, `src/formats/systemverilog.rs
   expansion outputs. A parse tree nests at most `ast::MAX_TREE_DEPTH` (256) levels and
   procedural statements at most 128. Beyond any of these, the parse is
   `Error::Validation` (the budget's message names it).
+- A module header that names a port twice (`module c (a, a);`, ANSI or not) is
+  `Error::Validation` in both parsers: it is illegal Verilog, and every occurrence would
+  expand the port's bits again (kfnetlist keeps every occurrence).
 - Writers keep infallible signatures and trust the IR only up to the same cap: a port
-  whose `width` or `properties["range"]` exceeds 1,000,000 bits, or whose range cannot
-  be represented, is written as a scalar, and its range is never walked. IR built from
+  whose `properties["range"]` parses to more than 1,000,000 bits is written as a scalar,
+  and so is one whose `width` does when it has no parseable range (an unparseable range
+  falls back to `width`); a range is never walked. IR built from
   JSON can still cost up to instances × 1,000,000 pin names per port when written; a
   fallible `try_write_*` would bound that.

@@ -568,6 +568,21 @@ fn connection_chunks(
     Ok(chunks)
 }
 
+/// `Error::Validation` when a module header names a port twice (illegal Verilog, and a
+/// writer would list the port's bits once per occurrence).
+// parity: kf-hdl-nets (kfnetlist keeps every occurrence)
+pub fn check_unique_ports(module: &str, port_names: &[String]) -> Result<(), Error> {
+    let mut seen = std::collections::HashSet::new();
+    for name in port_names {
+        if !seen.insert(name.as_str()) {
+            return Err(validation(format!(
+                "{module}: port '{name}' appears twice in the module header"
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// Charge the instances of one instance statement (`count` of them, an array or one):
 /// each costs itself, its master's port bits (a writer lists every one, connected or not)
 /// and its params.
