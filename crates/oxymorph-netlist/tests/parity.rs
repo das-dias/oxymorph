@@ -205,8 +205,6 @@ fn check_overrides(
 
 struct Expected<'a> {
     json: &'a serde_json::Value,
-    /// The oracle protobuf encodes the pre-override IR, so it is only compared when `json` is not overridden.
-    compare_oracle_proto: bool,
     writes: Vec<(&'a str, &'a str)>,
 }
 
@@ -214,7 +212,6 @@ fn expected_for<'a>(case: &'a serde_json::Value, over: &'a serde_json::Value) ->
     let writes = case["writes"].as_object().into_iter().flatten();
     Expected {
         json: over.get("json").unwrap_or(&case["json"]),
-        compare_oracle_proto: over.get("json").is_none(),
         writes: writes
             .map(|(format, text)| {
                 (
@@ -234,18 +231,15 @@ fn expected_values_apply_overrides() {
     let none = serde_json::json!(null);
     let plain = expected_for(&case, &none);
     assert_eq!(plain.json, &serde_json::json!({"a": 1}));
-    assert!(plain.compare_oracle_proto);
     assert_eq!(plain.writes, [("spectre", "old x"), ("spice", "old s")]);
 
     let write_only = serde_json::json!({"r4": "kf-x", "writes": {"spice": "new s"}});
     let expected = expected_for(&case, &write_only);
     assert_eq!(expected.writes, [("spectre", "old x"), ("spice", "new s")]);
-    assert!(expected.compare_oracle_proto);
 
     let json_override = serde_json::json!({"r4": "kf-x", "json": {"a": 2}});
     let expected = expected_for(&case, &json_override);
     assert_eq!(expected.json, &serde_json::json!({"a": 2}));
-    assert!(!expected.compare_oracle_proto);
     assert_eq!(expected.writes, [("spectre", "old x"), ("spice", "old s")]);
 }
 
@@ -337,6 +331,7 @@ fn parse_and_write_match_the_oracle() {
     let mut parse_checked = 0usize;
     let mut write_checked = 0usize;
     let mut proto_checked = 0usize;
+    let mut proto_cases = 0usize;
 
     for case in &cases {
         let format = case["format"].as_str().unwrap();
@@ -360,21 +355,22 @@ fn parse_and_write_match_the_oracle() {
         }
 
         if let Some(proto_hex) = case["proto"].as_str() {
-            if expected.compare_oracle_proto {
-                let bytes = hex_decode(proto_hex);
-                match Circuit::from_proto_bytes(&bytes) {
-                    Ok(mut oracle) => {
-                        apply_transforms(&mut oracle);
-                        if oracle == circuit {
-                            proto_checked += 1;
-                        } else {
-                            failures.push(format!("{format}/{name}: protobuf interchange differs"));
-                        }
-                    }
-                    Err(e) => {
-                        failures.push(format!("{format}/{name}: protobuf decode failed: {e}"))
+            proto_cases += 1;
+            // The oracle protobuf encodes the oracle JSON (no override): decoding it gives
+            // that IR; parsing is checked against the (overridden) JSON above.
+            let mut oracle_json =
+                Circuit::from_json(&case["json"].to_string()).expect("oracle IR is a circuit");
+            apply_transforms(&mut oracle_json);
+            match Circuit::from_proto_bytes(&hex_decode(proto_hex)) {
+                Ok(mut oracle) => {
+                    apply_transforms(&mut oracle);
+                    if oracle == oracle_json {
+                        proto_checked += 1;
+                    } else {
+                        failures.push(format!("{format}/{name}: protobuf interchange differs"));
                     }
                 }
+                Err(e) => failures.push(format!("{format}/{name}: protobuf decode failed: {e}")),
             }
             match Circuit::from_proto_bytes(&circuit.to_proto_bytes()) {
                 Ok(c) if c == circuit => {}
@@ -392,11 +388,9 @@ fn parse_and_write_match_the_oracle() {
     }
 
     assert!(parse_checked > 300, "corpus too small: {parse_checked}");
-    // A `json` override skips the oracle protobuf of its case: kf-one-pin-nets keeps the
-    // one-pin nets of instance pins, which the oracle IR has no name for.
     assert!(
-        proto_checked > 250,
-        "protobuf corpus too small: {proto_checked}"
+        proto_cases > 300,
+        "protobuf corpus too small: {proto_cases}"
     );
     if !failures.is_empty() {
         let shown: Vec<String> = failures.iter().take(40).cloned().collect();
@@ -409,4 +403,6 @@ fn parse_and_write_match_the_oracle() {
             shown.join("\n")
         );
     }
+    // every case with an oracle protobuf has it compared, overridden or not
+    assert_eq!(proto_checked, proto_cases);
 }

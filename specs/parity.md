@@ -118,13 +118,15 @@ code carrying it is marked `// parity: <id>`. Such ids are `kf-<short-slug>`.
 - **Systematic divergences are transforms.** A fix that changes many cases the
   same way is a named function in `TRANSFORMS` (`tests/parity.rs`), keyed by its
   R4 id. It rewrites the expected IR of every case, both the corpus `json` and the
-  IR decoded from the oracle protobuf, by calling the same helper the parser uses,
-  so the oracle protobuf stays compared on every case.
+  IR decoded from the oracle protobuf, by calling the same helper the parser uses.
 - **Case-specific divergences are overrides.** An entry in
   `tests/corpus/overrides.json` replaces the corpus `json` and/or `writes[fmt]` of
-  one case; when `json` is overridden the oracle protobuf (which encodes the old
-  IR) is not compared for that case, while the protobuf round-trip of the parsed
-  IR still is.
+  one case. The parsed IR is compared with the overridden `json`.
+
+The oracle protobuf of every case that has one is decoded and compared, after the
+transforms, with the oracle `json` (never an override: the protobuf encodes the
+oracle IR). This checks decoding on every case; parsing is checked against the
+expected `json`, and our own encoding by the protobuf round-trip of the parsed IR.
 
 `overrides_reference_r4_rows_and_name_existing_cases` fails if an override names
 an id that is not in this table or a case that is not in the corpus;
@@ -168,10 +170,10 @@ Rows are added during extraction and updated as the port progresses.
 | vams | 41 | 246 | all identical after R4 |
 | **total** | **357** | **2142** | **100% identical after R4** |
 
-Protobuf interchange (message-equal after decode and R4 transforms): **287 / 357**;
-the other 70 cases override their IR (`kf-one-pin-nets` 55, `kf-expressions` 12,
-`kf-bare-values` 2, `kf-vams-sources` 1), so their oracle protobuf is not compared,
-while their protobuf round-trip still is.
+Protobuf interchange (the decoded oracle protobuf message-equal to the oracle
+`json`, both after R4 transforms): **345 / 345** cases that carry a protobuf (the 12
+`inline/0` and `inline/1` cases have none); the protobuf round-trip of the parsed IR
+holds on the same 345.
 
 "After R4": the expected IR of every case passes through the R4 transforms
 (`kf-signal-domains` changes 191 cases, `kf-one-pin-nets` 52, `kf-top-elements`
