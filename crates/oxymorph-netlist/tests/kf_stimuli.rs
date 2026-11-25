@@ -3,18 +3,21 @@
 //! from: kfnetlist tests/morphnet/test_stimulus.py, test_spice_family_sources.py,
 //! test_pwl_sources.py, test_review_fixes.py, test_net_utils.py (TestNetMapToConnections),
 //! test_spectre_parser.py (TestSimulationFixtures), test_vams_parser.py
-//! (TestSimulationFixtures)
+//! (TestSimulationFixtures); the Verilog-A and SystemVerilog parts of test_pwl_sources.py
+//! and test_review_fixes.py (Task 6: 650763b, b26cd6b, d5b82b2 grammar and transformers)
 
 use indexmap::IndexMap;
 use oxymorph_netlist::expression::{parameter_value, to_float, Dialect};
+use oxymorph_netlist::hdl::HdlOptions;
 use oxymorph_netlist::helpers::{net_map_to_connections, open_node, NetMap};
 use oxymorph_netlist::stimulus::{
     self, attach, from_primitive, from_spectre, primitive, primitive_file, spectre_params,
     spice_text, stimulus_of, verilog_value,
 };
 use oxymorph_netlist::{
-    parse_hspice, parse_spectre, parse_spectre_spice, parse_spice, parse_vams, parse_xyce,
-    write_hspice, write_spectre, write_spectre_spice, write_spice, write_vams, write_xyce, Error,
+    parse_hspice, parse_spectre, parse_spectre_spice, parse_spice, parse_systemverilog, parse_vams,
+    parse_xyce, write_hspice, write_spectre, write_spectre_spice, write_spice, write_systemverilog,
+    write_vams, write_xyce, Error,
 };
 use oxymorph_schema::{
     Circuit, Connection, Expression, Module, ModuleReference, ParameterValue, PortReference,
@@ -30,6 +33,10 @@ const SPICE_PARSERS: [(&str, Parse); 4] = [
     ("xyce", parse_xyce),
     ("spectre_spice", parse_spectre_spice),
 ];
+
+fn parse_sv(text: &str) -> Result<Circuit, Error> {
+    parse_systemverilog(text, &HdlOptions::default())
+}
 
 fn pv(text: &str) -> ParameterValue {
     parameter_value(text)
@@ -706,8 +713,6 @@ fn an_unknown_spice_source_function_is_an_error() {
     }
 }
 
-/// The write half of test_verilog_a_mega_is_M_both_ways; reading the written text
-/// back needs the 650763b / #35 Verilog-AMS grammar (Task 6).
 #[test]
 fn verilog_a_mega_is_m_both_ways() {
     let circuit = parse_spice("* t\nI1 a 0 SIN(0 1m 1meg)\nR1 a 0 1k\n.end\n").unwrap();
@@ -716,6 +721,15 @@ fn verilog_a_mega_is_m_both_ways() {
         !text.contains("meg") && text.contains(".freq(1M)"),
         "{text}"
     );
+    let back = parse_vams(&text).unwrap();
+    let i1 = element(&back, "I1");
+    let freq = &stimulus_of(&back, i1)
+        .unwrap()
+        .waveform
+        .as_ref()
+        .unwrap()
+        .args["freq"];
+    assert_eq!(to_float(freq.prefixed_value.as_ref().unwrap()), 1e6);
     let resistor =
         parse_vams("module t;\n  resistor #(.r(1M)) R1 (.p(a), .n(b));\nendmodule\n").unwrap();
     let value = resistor.modules[0].module_references[0].parameters[0]
@@ -723,6 +737,7 @@ fn verilog_a_mega_is_m_both_ways() {
         .as_ref()
         .unwrap();
     assert_eq!(to_float(value.prefixed_value.as_ref().unwrap()), 1e6);
+    assert!(write_spice(&back).contains("SIN(0 1m 1meg)")); // SPICE keeps its own spelling
 }
 
 // ── test_pwl_sources.py ────────────────────────────────────────────────
@@ -782,12 +797,14 @@ fn numbers(waveform: &Waveform) -> (WaveformKind, Vec<f64>, Option<String>) {
 
 #[test]
 fn pwl_points_and_files_round_trip() {
-    let dialects: [(&str, Write, Parse); 5] = [
+    let dialects: [(&str, Write, Parse); 7] = [
         ("ngspice", write_spice, parse_spice),
         ("hspice", write_hspice, parse_hspice),
         ("xyce", write_xyce, parse_xyce),
         ("spectre", write_spectre, parse_spectre),
         ("spectre_spice", write_spectre_spice, parse_spectre_spice),
+        ("verilog-a", write_vams, parse_vams),
+        ("systemverilog", write_systemverilog, parse_sv),
     ];
     for (dialect, write, parse) in dialects {
         let back = parse(&write(&sources())).unwrap();
@@ -872,6 +889,44 @@ fn spice_reads_an_ltspice_pwl_file_assignment() {
         assert!(element(&circuit, "V2").parameters.is_empty(), "{dialect}");
         assert_eq!(stimulus_named(&circuit, "V1").dc, None, "{dialect}");
     }
+}
+
+#[test]
+fn verilog_a_reads_a_pwl_file_attribute() {
+    let circuit = parse_vams(
+        "module t;\n  (* pwl_file = \"data/w.txt\" *) vpwl #(.dc(0)) V1 (.p(a), .n(b));\nendmodule\n",
+    )
+    .unwrap();
+    let v1 = &circuit.modules[0].module_references[0];
+    let waveform = stimulus_of(&circuit, v1)
+        .unwrap()
+        .waveform
+        .as_ref()
+        .unwrap();
+    assert_eq!(waveform.file.as_deref(), Some("data/w.txt"));
+}
+
+#[test]
+fn systemverilog_pwl_file_attribute_forms() {
+    let circuit = parse_sv(
+        "module t (inout a, inout b);\n  (* pwl_file = \"w.txt\", keep *) vpwl#(.dc(0)) V1 (.p(a), .n(b));\n  foo #(.pwl_file(\"x.txt\")) U1 (.p(a), .n(b));\nendmodule\n",
+    )
+    .unwrap();
+    let [v1, u1] = circuit.modules[0].module_references.as_slice() else {
+        panic!("two instances");
+    };
+    let waveform = stimulus_of(&circuit, v1)
+        .unwrap()
+        .waveform
+        .as_ref()
+        .unwrap();
+    assert_eq!(waveform.file.as_deref(), Some("w.txt"));
+    let names: Vec<&str> = u1
+        .parameters
+        .iter()
+        .map(|parameter| parameter.name.as_str())
+        .collect();
+    assert_eq!(names, ["pwl_file"]); // not a source: kept
 }
 
 #[test]

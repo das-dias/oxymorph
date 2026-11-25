@@ -1,13 +1,15 @@
 //! Parameter expressions ported from kfnetlist d0daf3e, 1adb071, c12a71e and d94dc38.
-//! from: kfnetlist tests/morphnet/test_expression.py, test_parser_expressions.py and the
+//! from: kfnetlist tests/morphnet/test_expression.py, test_parser_expressions.py (with its
+//! `[sv]` parametrization, 9766e84) and the
 //! unit tests of crates/kfnetlist-schema/src/expression.rs
 
 use std::collections::HashMap;
 
 use oxymorph_netlist::expression::{format_expression, parse_expression, Dialect};
+use oxymorph_netlist::hdl::HdlOptions;
 use oxymorph_netlist::{
-    parse_hspice, parse_spectre, parse_spice, parse_xyce, write_hspice, write_spectre, write_spice,
-    write_xyce, Error,
+    parse_hspice, parse_spectre, parse_spice, parse_systemverilog, parse_xyce, write_hspice,
+    write_spectre, write_spice, write_systemverilog, write_xyce, Error,
 };
 use oxymorph_schema::{
     BinaryOp, Call, Circuit, Expression, Operator, PrefixedValue, Siprefix, Ternary, UnaryOp,
@@ -541,7 +543,7 @@ fn calls_ternaries_and_raw_text() {
 }
 
 // ---------------------------------------------------------------------------
-// test_parser_expressions.py (the SystemVerilog parametrization comes with Task 6)
+// test_parser_expressions.py
 // ---------------------------------------------------------------------------
 
 const SPICE: &str = "\
@@ -555,6 +557,15 @@ subckt cell (p n) a=1 b=2
 R1 (p n) resistor r=1k w=a*b+1 l=a
 ends cell
 ";
+const SV: &str = "\
+module cell #(parameter a = 1, parameter b = 2) (input p, n);
+  res #(.w(a*b+1), .l(a)) R1 (p, n);
+endmodule
+";
+
+fn parse_sv(text: &str) -> Result<Circuit, Error> {
+    parse_systemverilog(text, &HdlOptions::default())
+}
 
 type Parser = fn(&str) -> Result<Circuit, Error>;
 type Writer = fn(&Circuit) -> String;
@@ -584,6 +595,12 @@ fn dialects() -> Vec<(Parser, Writer, String, &'static str)> {
             write_spectre,
             SPECTRE.to_string(),
             "w=a * b + 1",
+        ),
+        (
+            parse_sv,
+            write_systemverilog,
+            SV.to_string(),
+            ".w(a * b + 1)",
         ),
     ]
 }

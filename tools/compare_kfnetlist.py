@@ -31,7 +31,7 @@ from pathlib import Path
 
 import kfnetlist.morphnet.netlist as kfnetlist_netlist
 
-FORMATS = ["spice", "hspice", "xyce", "spectre", "spectre_spice", "vams"]
+FORMATS = ["spice", "hspice", "xyce", "spectre", "spectre_spice", "vams", "systemverilog"]
 KFNETLIST_TO_OXYMORPH_KEYS = {
     "top_circuit": "top_module",
     "circuits": "modules",

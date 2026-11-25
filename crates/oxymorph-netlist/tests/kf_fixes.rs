@@ -1,12 +1,13 @@
 //! Parser fixes ported from kfnetlist #34 (1deb1e0, non-SystemVerilog parts) and #36 (0a5184b).
-//! from: kfnetlist tests/morphnet/test_port_domain.py, test_spectre_parser.py, test_spectre_spice_parser.py
+//! from: kfnetlist tests/morphnet/test_port_domain.py (with its SystemVerilog parametrization), test_spectre_parser.py, test_spectre_spice_parser.py
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use oxymorph_netlist::hdl::HdlOptions;
 use oxymorph_netlist::helpers;
 use oxymorph_netlist::{
-    parse_hspice, parse_spectre, parse_spectre_spice, parse_spice, parse_vams, parse_xyce,
-    write_spectre, Error,
+    parse_hspice, parse_spectre, parse_spectre_spice, parse_spice, parse_systemverilog, parse_vams,
+    parse_xyce, write_spectre, Error,
 };
 use oxymorph_schema::{Circuit, Module, SignalDomain};
 
@@ -31,6 +32,11 @@ module top (o1, e1, vdd, out);
   cell X1 (.o1(o1), .e1(e1), .vdd(vdd), .out(out));
 endmodule
 ";
+const SV: &str = "\
+module top (inout o1, e1, vdd, out);
+  cell X1 (.o1, .e1, .vdd, .out);
+endmodule
+";
 
 type Parser = fn(&str) -> Result<Circuit, Error>;
 
@@ -51,7 +57,10 @@ fn domain_of() {
     assert_eq!(helpers::domain_of("vdd"), SignalDomain::Electrical);
 }
 
-// The SystemVerilog parametrization is ported with the SystemVerilog parser (Task 6).
+fn parse_sv(text: &str) -> Result<Circuit, Error> {
+    parse_systemverilog(text, &HdlOptions::default())
+}
+
 #[test]
 fn parsers_mark_optical_terminals() {
     let expected: BTreeMap<String, SignalDomain> = [
@@ -64,12 +73,13 @@ fn parsers_mark_optical_terminals() {
     .map(|(name, domain)| (name.to_string(), domain))
     .collect();
 
-    let cases: [(&str, Parser, &str); 5] = [
+    let cases: [(&str, Parser, &str); 6] = [
         ("spice", parse_spice, SPICE),
         ("xyce", parse_xyce, SPICE),
         ("hspice", parse_hspice, SPICE),
         ("spectre", parse_spectre, SPECTRE),
         ("vams", parse_vams, VAMS),
+        ("systemverilog", parse_sv, SV),
     ];
     for (format, parse, text) in cases {
         let circuit = parse(text).unwrap();

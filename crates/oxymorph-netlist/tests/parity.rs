@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use oxymorph_netlist::hdl::bus_base;
 use oxymorph_netlist::helpers::{domain_of, net_domain, open_node};
 use oxymorph_schema::{Circuit, Connection, Module, PortReference};
 
@@ -15,6 +16,7 @@ const TRANSFORMS: &[(&str, Transform)] = &[
     ("kf-signal-domains", apply_signal_domains),
     ("kf-one-pin-nets", apply_one_pin_port_nets),
     ("kf-top-elements", apply_top_elements),
+    ("kf-hdl-nets", apply_net_disciplines),
 ];
 
 /// kf-signal-domains: ports take `domain_of` their name; a connection takes its net's domain.
@@ -90,6 +92,27 @@ fn apply_top_elements(circuit: &mut Circuit) {
         .any(|module| module.name == "__top__")
     {
         circuit.top_module = "__top__".to_string();
+    }
+}
+
+/// kf-hdl-nets: a Verilog net records its declared discipline as the connection's
+/// `discipline` property. The oracle IR keeps the disciplines of ports only (the corpus
+/// declares no internal net's).
+fn apply_net_disciplines(circuit: &mut Circuit) {
+    for module in &mut circuit.modules {
+        let mut disciplines: HashMap<String, String> = HashMap::new();
+        for port in &module.ports {
+            if !port.discipline.is_empty() {
+                disciplines.insert(port.name.clone(), port.discipline.clone());
+            }
+        }
+        for connection in &mut module.connections {
+            if let Some(discipline) = disciplines.get(bus_base(&connection.name)) {
+                connection
+                    .properties
+                    .insert("discipline".to_string(), discipline.clone());
+            }
+        }
     }
 }
 
@@ -319,6 +342,21 @@ fn one_pin_port_net_transform_keeps_net_order() {
         .retain(|connection| connection.target.is_some());
     assert_ne!(oracle, circuit);
     apply_one_pin_port_nets(&mut oracle);
+    assert_eq!(oracle, circuit);
+}
+
+#[test]
+fn net_discipline_transform_matches_the_parser() {
+    let circuit = oxymorph_netlist::parse_vams(
+        "module top (a, b);\n  inout [1:0] a;\n  inout b;\n  electrical [1:0] a;\n  r R1 (.p(a[0]), .n(b));\nendmodule\n",
+    )
+    .unwrap();
+    let mut oracle = circuit.clone();
+    for connection in &mut oracle.modules[0].connections {
+        connection.properties.clear();
+    }
+    assert_ne!(oracle, circuit);
+    apply_net_disciplines(&mut oracle);
     assert_eq!(oracle, circuit);
 }
 

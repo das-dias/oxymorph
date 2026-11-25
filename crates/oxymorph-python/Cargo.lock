@@ -175,6 +175,7 @@ dependencies = [
  "lark-rs",
  "oxymorph-schema",
  "regex",
+ "serde_json",
 ]
 
 [[package]]

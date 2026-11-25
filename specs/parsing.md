@@ -11,6 +11,7 @@ engine configuration exactly:
 |---|---|---|---|
 | `spectre` | `spectre.lark` | LALR | contextual |
 | `vams` | `vams.lark` | LALR | contextual |
+| `systemverilog` | `systemverilog.lark` | LALR | contextual |
 | `spice` | `spice.lark` | Earley, `ambiguity="resolve"` | auto/dynamic |
 | `hspice` | `hspice.lark` | Earley, `ambiguity="resolve"` | auto/dynamic |
 | `xyce` | `xyce.lark` | Earley, `ambiguity="resolve"` | auto/dynamic |
@@ -20,12 +21,22 @@ delegates to the spice and spectre parsers (`preprocess_spectre_spice`). With th
 `spectre_spice` feature built, `parse_spectre` does the same for a file with a
 `simulator lang=` line, starting in Spectre.
 
+`lark_rs` builds its lexer as a DFA, which has no Unicode `\b`: the SystemVerilog
+grammar's keyword boundaries are compiled as ASCII ones (`(?-u:\b)`); the grammar
+file itself stays verbatim.
+
 ## R2. Preprocessing
 
 Per-format preprocessing runs before parsing and mirrors `*/preprocess.py`:
 comment stripping, continuation joining, and (spectre) semicolon injection;
-vams extracts backtick directives and replaces `analog` blocks with numbered
-placeholders.
+vams and systemverilog keep the active `` `ifdef `` / `` `elsif `` / `` `else ``
+branches for the given `defines` (with none, the `` `else `` branch), expand
+object-like macros, extract backtick directives, and replace `analog` blocks
+(vams) or behavioral constructs (systemverilog: `always`, `initial`, `function`,
+`generate`, a non-trivial `assign`, …) with numbered placeholders kept as
+`analog_block` / `behavioral_block_<N>` properties. systemverilog strips
+`(* attributes *)`, except a `pwl_file` attribute, which becomes the source's
+parameter.
 
 ## R3. Boundary
 
@@ -152,3 +163,49 @@ Ported from kfnetlist 75c630f, b1153f6, b4dc1ec, 30a1621, 6db1e11, 650763b,
 - A net with one pin is a source-only connection. Writers put a pin with no net on
   its own node `nc_<instance>_<pin>` (SPICE: the instance name as written); a
   parser drops a one-pin net named `nc_<instance>_…`.
+
+## R7. HDL nets (SystemVerilog, Verilog-AMS)
+
+Ported from kfnetlist 1deb1e0, 28b80e0, 4c98724 (#34, #35), 650763b, f886515,
+b26cd6b, d5b82b2 (`decisions/0011`); `src/hdl.rs`, `src/formats/systemverilog.rs`,
+`src/formats/vams.rs`:
+
+- `parse_systemverilog(text, &HdlOptions)` and `parse_vams_with(text, &HdlOptions)`
+  (`parse_vams(text)` uses the defaults). `HdlOptions { defines, disciplines,
+  pin_domains }`: predefined macros; port/net type → domain; cell → pin → domain.
+- Nets are bits. A bus port `input [3:0] in` is one `Port` with `width = 4` and
+  `properties["range"] = "3:0"`; its bits `in[3]` … `in[0]` are the net members, so a
+  bit-select meets the port. Concatenations `{a, b[1:0]}` and replications `{2{a}}`
+  resolve msb first; a literal is a constant tie. An instance array `X I[3:0] (…)`
+  expands to `I[3]` … `I[0]`, slicing or broadcasting each connection (IEEE 1800
+  23.3.3.5). A positional pin of a defined module takes its port name, else `p<i>`.
+  A select of an undeclared bus, a bit outside its range, a width mismatch or a
+  multi-dimensional bus is `Error::Validation`.
+- SystemVerilog: ANSI and non-ANSI ports (a bare ANSI name inherits the previous
+  direction and type), header and body parameters (`localparam` →
+  `properties["localparam"]`, a type → `properties["type"]`; sized literals such as
+  `4'b1010` are numbers), named, ordered, `.name`, `.*` and empty connections,
+  `assign` / `alias` / `wire a = b` merging nets (a port names the merged net). The
+  top is the last module no other instantiates. A source primitive is a stimulus, as
+  in VAMS.
+- A connection records its net's declared type as `properties["discipline"]`.
+  Domains: a typed port or net in `disciplines`, and a pin in `pin_domains` (which
+  wins), take that domain; a net touching a waveguide terminal is waveguide, and so
+  are the untyped ports on it, up the hierarchy until nothing changes; the rest keep
+  the `o<N>` rule.
+- Verilog-AMS: `(* spice_lib = "…", spice_code = "…" *)` on the top module and
+  `spice_module_code` on any module carry `LIB` directives and the macros in other
+  languages (JSON); `electrical b = 5;` is a nodeset (`Simulation.node_sets`,
+  `V(b)`); `(* pwl_file = "…" *)` on a `vpwl` is its PWL file; an override value is
+  any expression (`.l(0.13 * 1e-6)`).
+- Writers: buses are written as `[m:l]` declarations and connections regrouped into
+  `bus`, `bus[i]`, `bus[m:l]` or `{…}`; a name that is not an identifier, or is a
+  keyword, is escaped (`\0 `, `sv_name`); an unconnected port is `.p()`. A bus port
+  only partly connected is written with its open bits on their own `nc_<instance>_<pin>`
+  nodes (kfnetlist raises). SystemVerilog writes numbers plainly (`2e-07`), behavioral
+  blocks back in place and a stimulus as its Annex E primitive (`(* pwl_file *)` for a
+  PWL file); Verilog-AMS writes the attributes and nodesets above.
+- Untrusted text: a bus range, a replication, an instance array, and the pins of one
+  array connection expand to at most `hdl::MAX_EXPANDED_WIDTH` (1,000,000) bits or
+  instances, a parse tree nests at most `ast::MAX_TREE_DEPTH` (256) levels and
+  procedural statements at most 128; beyond that the parse is `Error::Validation`.

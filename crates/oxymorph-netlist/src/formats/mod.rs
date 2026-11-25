@@ -6,6 +6,8 @@ pub mod spectre;
 pub mod spectre_spice;
 #[cfg(feature = "spice")]
 pub mod spice;
+#[cfg(feature = "systemverilog")]
+pub mod systemverilog;
 #[cfg(feature = "vams")]
 pub mod vams;
 #[cfg(feature = "xyce")]
@@ -19,8 +21,10 @@ pub use spectre::{parse_spectre, write_spectre};
 pub use spectre_spice::{parse_spectre_spice, write_spectre_spice};
 #[cfg(feature = "spice")]
 pub use spice::{parse_hspice, parse_spice, parse_xyce, write_spice};
+#[cfg(feature = "systemverilog")]
+pub use systemverilog::{parse_systemverilog, write_systemverilog};
 #[cfg(feature = "vams")]
-pub use vams::{parse_vams, write_vams};
+pub use vams::{parse_vams, parse_vams_with, write_vams};
 #[cfg(feature = "xyce")]
 pub use xyce::write_xyce;
 
@@ -43,6 +47,8 @@ pub fn parse_dispatch(format: &str, text: &str) -> Result<Circuit, Error> {
         "spectre_spice" => parse_spectre_spice(text),
         #[cfg(feature = "vams")]
         "vams" => parse_vams(text),
+        #[cfg(feature = "systemverilog")]
+        "systemverilog" => parse_systemverilog(text, &crate::hdl::HdlOptions::default()),
         other => Err(Error::Validation(format!(
             "unknown or disabled format: {other}"
         ))),
@@ -56,6 +62,8 @@ pub fn write_dispatch(format: &str, circuit: &Circuit) -> String {
         "spectre" => write_spectre(circuit),
         #[cfg(feature = "vams")]
         "vams" => write_vams(circuit),
+        #[cfg(feature = "systemverilog")]
+        "systemverilog" => write_systemverilog(circuit),
         #[cfg(feature = "hspice")]
         "hspice" => write_hspice(circuit),
         #[cfg(feature = "xyce")]

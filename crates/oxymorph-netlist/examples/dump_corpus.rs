@@ -4,20 +4,21 @@
 //! `cargo run --release -p oxymorph-netlist --example dump_corpus -- tests/corpus/cases.json`.
 
 use oxymorph_netlist::{
-    parse_dispatch, write_hspice, write_spectre, write_spectre_spice, write_spice, write_vams,
-    write_xyce,
+    parse_dispatch, write_hspice, write_spectre, write_spectre_spice, write_spice,
+    write_systemverilog, write_vams, write_xyce,
 };
 use oxymorph_schema::Circuit;
 
 type Writer = fn(&Circuit) -> String;
 
-const WRITERS: [(&str, Writer); 6] = [
+const WRITERS: [(&str, Writer); 7] = [
     ("spice", write_spice),
     ("hspice", write_hspice),
     ("xyce", write_xyce),
     ("spectre", write_spectre),
     ("spectre_spice", write_spectre_spice),
     ("vams", write_vams),
+    ("systemverilog", write_systemverilog),
 ];
 
 fn dump_case(case: &serde_json::Value) -> serde_json::Value {

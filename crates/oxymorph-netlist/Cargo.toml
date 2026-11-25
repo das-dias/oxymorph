@@ -6,13 +6,14 @@ license.workspace = true
 repository.workspace = true
 
 [features]
-default = ["spice", "hspice", "xyce", "spectre", "spectre_spice", "vams"]
+default = ["spice", "hspice", "xyce", "spectre", "spectre_spice", "vams", "systemverilog"]
 spice = []
 hspice = ["spice"]
 xyce = ["spice"]
 spectre = []
 spectre_spice = ["spice", "spectre"]
 vams = []
+systemverilog = []
 
 [[test]]
 name = "parity"
@@ -20,11 +21,11 @@ required-features = ["spice", "hspice", "xyce", "spectre", "spectre_spice", "vam
 
 [[test]]
 name = "kf_fixes"
-required-features = ["spice", "hspice", "xyce", "spectre", "spectre_spice", "vams"]
+required-features = ["spice", "hspice", "xyce", "spectre", "spectre_spice", "vams", "systemverilog"]
 
 [[test]]
 name = "kf_expressions"
-required-features = ["spice", "hspice", "xyce", "spectre", "spectre_spice", "vams"]
+required-features = ["spice", "hspice", "xyce", "spectre", "spectre_spice", "vams", "systemverilog"]
 
 [[test]]
 name = "kf_writers"
@@ -32,17 +33,19 @@ required-features = ["spice", "hspice", "xyce", "spectre", "spectre_spice", "vam
 
 [[test]]
 name = "kf_stimuli"
-required-features = ["spice", "hspice", "xyce", "spectre", "spectre_spice", "vams"]
+required-features = ["spice", "hspice", "xyce", "spectre", "spectre_spice", "vams", "systemverilog"]
+
+[[test]]
+name = "kf_systemverilog"
+required-features = ["spice", "hspice", "xyce", "spectre", "spectre_spice", "vams", "systemverilog"]
 
 [[example]]
 name = "dump_corpus"
-required-features = ["spice", "hspice", "xyce", "spectre", "spectre_spice", "vams"]
+required-features = ["spice", "hspice", "xyce", "spectre", "spectre_spice", "vams", "systemverilog"]
 
 [dependencies]
 oxymorph-schema = { path = "../oxymorph-schema" }
 lark-rs.workspace = true
 regex.workspace = true
 indexmap.workspace = true
-
-[dev-dependencies]
 serde_json.workspace = true

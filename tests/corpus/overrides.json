@@ -4269,7 +4269,7 @@
    "spectre": "X1 (vin vout vdd 0) inverter\nsubckt inverter (vin vout vdd gnd)\nM1 (vout vin vdd vdd) pmos w=1u l=100n\nM2 (vout vin gnd gnd) nmos w=500n l=100n\nends inverter\ntran tran\nsave V(vin) V(vout)\n",
    "spectre_spice": "* untitled\nX1 vin vout vdd 0 inverter\n.subckt inverter vin vout vdd gnd\nM1 vout vin vdd vdd pmos w=1u l=100n\nM2 vout vin gnd gnd nmos w=500n l=100n\n.ends inverter\n.tran 1n 20n\n.print TRAN V(vin) V(vout)\n.end\n",
    "spice": "* untitled\nX1 vin vout vdd 0 inverter\n.subckt inverter vin vout vdd gnd\nM1 vout vin vdd vdd pmos w=1u l=100n\nM2 vout vin gnd gnd nmos w=500n l=100n\n.ends inverter\n.tran 1n 20n\n.print TRAN V(vin) V(vout)\n.end\n",
-   "vams": "paramset pmos mosfet;\nendparamset\nparamset nmos mosfet;\nendparamset\nmodule __top__ ();\n  inverter X1 (.vin(vin), .vout(vout), .vdd(vdd), .gnd(0));\nendmodule\nmodule inverter (vin, vout, vdd, gnd);\n  inout vin, vout, vdd, gnd;\n  pmos #(.w(1u), .l(100n)) M1 (.d(vout), .g(vin), .s(vdd), .b(vdd));\n  nmos #(.w(500n), .l(100n)) M2 (.d(vout), .g(vin), .s(gnd), .b(gnd));\nendmodule\n",
+   "vams": "paramset pmos mosfet;\nendparamset\nparamset nmos mosfet;\nendparamset\nmodule __top__ ();\n  inverter X1 (.vin(vin), .vout(vout), .vdd(vdd), .gnd(\\0 ));\nendmodule\nmodule inverter (vin, vout, vdd, gnd);\n  inout vin, vout, vdd, gnd;\n  pmos #(.w(1u), .l(100n)) M1 (.d(vout), .g(vin), .s(vdd), .b(vdd));\n  nmos #(.w(500n), .l(100n)) M2 (.d(vout), .g(vin), .s(gnd), .b(gnd));\nendmodule\n",
    "xyce": "* untitled\nX1 vin vout vdd 0 inverter\n.subckt inverter vin vout vdd gnd\nM1 vout vin vdd vdd pmos w=1u l=100n\nM2 vout vin gnd gnd nmos w=500n l=100n\n.ends inverter\n.tran 1n 20n\n.print TRAN V(vin) V(vout)\n.end\n"
   }
  },
@@ -4656,7 +4656,7 @@
    "spectre": "X1 (vin vout vdd 0) inverter\nsubckt inverter (vin vout vdd gnd)\nM1 (vout vin vdd vdd) pmos w=1u l=100n\nM2 (vout vin gnd gnd) nmos w=500n l=100n\nends inverter\ntran tran\nsave V(vin) V(vout)\n",
    "spectre_spice": "* untitled\nX1 vin vout vdd 0 inverter\n.subckt inverter vin vout vdd gnd\nM1 vout vin vdd vdd pmos w=1u l=100n\nM2 vout vin gnd gnd nmos w=500n l=100n\n.ends inverter\n.tran 1n 20n\n.print TRAN V(vin) V(vout)\n.end\n",
    "spice": "* untitled\nX1 vin vout vdd 0 inverter\n.subckt inverter vin vout vdd gnd\nM1 vout vin vdd vdd pmos w=1u l=100n\nM2 vout vin gnd gnd nmos w=500n l=100n\n.ends inverter\n.tran 1n 20n\n.print TRAN V(vin) V(vout)\n.end\n",
-   "vams": "paramset pmos mosfet;\nendparamset\nparamset nmos mosfet;\nendparamset\nmodule __top__ ();\n  inverter X1 (.vin(vin), .vout(vout), .vdd(vdd), .gnd(0));\nendmodule\nmodule inverter (vin, vout, vdd, gnd);\n  inout vin, vout, vdd, gnd;\n  pmos #(.w(1u), .l(100n)) M1 (.d(vout), .g(vin), .s(vdd), .b(vdd));\n  nmos #(.w(500n), .l(100n)) M2 (.d(vout), .g(vin), .s(gnd), .b(gnd));\nendmodule\n",
+   "vams": "paramset pmos mosfet;\nendparamset\nparamset nmos mosfet;\nendparamset\nmodule __top__ ();\n  inverter X1 (.vin(vin), .vout(vout), .vdd(vdd), .gnd(\\0 ));\nendmodule\nmodule inverter (vin, vout, vdd, gnd);\n  inout vin, vout, vdd, gnd;\n  pmos #(.w(1u), .l(100n)) M1 (.d(vout), .g(vin), .s(vdd), .b(vdd));\n  nmos #(.w(500n), .l(100n)) M2 (.d(vout), .g(vin), .s(gnd), .b(gnd));\nendmodule\n",
    "xyce": "* untitled\nX1 vin vout vdd 0 inverter\n.subckt inverter vin vout vdd gnd\nM1 vout vin vdd vdd pmos w=1u l=100n\nM2 vout vin gnd gnd nmos w=500n l=100n\n.ends inverter\n.tran 1n 20n\n.print TRAN V(vin) V(vout)\n.end\n"
   }
  },
@@ -5043,7 +5043,7 @@
    "spectre": "X1 (vin vout vdd 0) inverter\nsubckt inverter (vin vout vdd gnd)\nM1 (vout vin vdd vdd) pmos w=1u l=100n\nM2 (vout vin gnd gnd) nmos w=500n l=100n\nends inverter\ntran tran\nsave V(vin) V(vout)\n",
    "spectre_spice": "* untitled\nX1 vin vout vdd 0 inverter\n.subckt inverter vin vout vdd gnd\nM1 vout vin vdd vdd pmos w=1u l=100n\nM2 vout vin gnd gnd nmos w=500n l=100n\n.ends inverter\n.tran 1n 20n\n.print TRAN V(vin) V(vout)\n.end\n",
    "spice": "* untitled\nX1 vin vout vdd 0 inverter\n.subckt inverter vin vout vdd gnd\nM1 vout vin vdd vdd pmos w=1u l=100n\nM2 vout vin gnd gnd nmos w=500n l=100n\n.ends inverter\n.tran 1n 20n\n.print TRAN V(vin) V(vout)\n.end\n",
-   "vams": "paramset pmos mosfet;\nendparamset\nparamset nmos mosfet;\nendparamset\nmodule __top__ ();\n  inverter X1 (.vin(vin), .vout(vout), .vdd(vdd), .gnd(0));\nendmodule\nmodule inverter (vin, vout, vdd, gnd);\n  inout vin, vout, vdd, gnd;\n  pmos #(.w(1u), .l(100n)) M1 (.d(vout), .g(vin), .s(vdd), .b(vdd));\n  nmos #(.w(500n), .l(100n)) M2 (.d(vout), .g(vin), .s(gnd), .b(gnd));\nendmodule\n",
+   "vams": "paramset pmos mosfet;\nendparamset\nparamset nmos mosfet;\nendparamset\nmodule __top__ ();\n  inverter X1 (.vin(vin), .vout(vout), .vdd(vdd), .gnd(\\0 ));\nendmodule\nmodule inverter (vin, vout, vdd, gnd);\n  inout vin, vout, vdd, gnd;\n  pmos #(.w(1u), .l(100n)) M1 (.d(vout), .g(vin), .s(vdd), .b(vdd));\n  nmos #(.w(500n), .l(100n)) M2 (.d(vout), .g(vin), .s(gnd), .b(gnd));\nendmodule\n",
    "xyce": "* untitled\nX1 vin vout vdd 0 inverter\n.subckt inverter vin vout vdd gnd\nM1 vout vin vdd vdd pmos w=1u l=100n\nM2 vout vin gnd gnd nmos w=500n l=100n\n.ends inverter\n.tran 1n 20n\n.print TRAN V(vin) V(vout)\n.end\n"
   }
  },
@@ -5430,7 +5430,7 @@
    "spectre": "X1 (vin vout vdd 0) inverter\nsubckt inverter (vin vout vdd gnd)\nM1 (vout vin vdd vdd) pmos w=1u l=100n\nM2 (vout vin gnd gnd) nmos w=500n l=100n\nends inverter\ntran tran\nsave V(vin) V(vout)\n",
    "spectre_spice": "* untitled\nX1 vin vout vdd 0 inverter\n.subckt inverter vin vout vdd gnd\nM1 vout vin vdd vdd pmos w=1u l=100n\nM2 vout vin gnd gnd nmos w=500n l=100n\n.ends inverter\n.tran 1n 20n\n.print TRAN V(vin) V(vout)\n.end\n",
    "spice": "* untitled\nX1 vin vout vdd 0 inverter\n.subckt inverter vin vout vdd gnd\nM1 vout vin vdd vdd pmos w=1u l=100n\nM2 vout vin gnd gnd nmos w=500n l=100n\n.ends inverter\n.tran 1n 20n\n.print TRAN V(vin) V(vout)\n.end\n",
-   "vams": "paramset pmos mosfet;\nendparamset\nparamset nmos mosfet;\nendparamset\nmodule __top__ ();\n  inverter X1 (.vin(vin), .vout(vout), .vdd(vdd), .gnd(0));\nendmodule\nmodule inverter (vin, vout, vdd, gnd);\n  inout vin, vout, vdd, gnd;\n  pmos #(.w(1u), .l(100n)) M1 (.d(vout), .g(vin), .s(vdd), .b(vdd));\n  nmos #(.w(500n), .l(100n)) M2 (.d(vout), .g(vin), .s(gnd), .b(gnd));\nendmodule\n",
+   "vams": "paramset pmos mosfet;\nendparamset\nparamset nmos mosfet;\nendparamset\nmodule __top__ ();\n  inverter X1 (.vin(vin), .vout(vout), .vdd(vdd), .gnd(\\0 ));\nendmodule\nmodule inverter (vin, vout, vdd, gnd);\n  inout vin, vout, vdd, gnd;\n  pmos #(.w(1u), .l(100n)) M1 (.d(vout), .g(vin), .s(vdd), .b(vdd));\n  nmos #(.w(500n), .l(100n)) M2 (.d(vout), .g(vin), .s(gnd), .b(gnd));\nendmodule\n",
    "xyce": "* untitled\nX1 vin vout vdd 0 inverter\n.subckt inverter vin vout vdd gnd\nM1 vout vin vdd vdd pmos w=1u l=100n\nM2 vout vin gnd gnd nmos w=500n l=100n\n.ends inverter\n.tran 1n 20n\n.print TRAN V(vin) V(vout)\n.end\n"
   }
  },

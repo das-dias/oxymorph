@@ -17,6 +17,7 @@ pub fn formats() -> Vec<String> {
         "spectre".to_string(),
         "spectre_spice".to_string(),
         "vams".to_string(),
+        "systemverilog".to_string(),
     ]
 }
 
