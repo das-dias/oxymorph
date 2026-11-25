@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use indexmap::IndexMap;
 use oxymorph_netlist::expression::{parse_expression, to_float};
-use oxymorph_netlist::hdl::{sv_name, HdlOptions, MAX_EXPANDED_WIDTH};
+use oxymorph_netlist::hdl::{sv_name, ExpansionBudget, HdlOptions, MAX_EXPANDED_WIDTH};
 use oxymorph_netlist::helpers::PinDomains;
 use oxymorph_netlist::preprocess::preprocess_vams;
 use oxymorph_netlist::stimulus::stimulus_of;
@@ -785,7 +785,7 @@ fn hdl_expansion_is_bounded() {
         ),
     ];
     for (text, reason) in &cases {
-        match parse_systemverilog(text, &HdlOptions::default()) {
+        match parse_systemverilog(&with_budget_room(text), &HdlOptions::default()) {
             Err(Error::Validation(message)) => assert!(message.contains(reason), "{message}"),
             other => panic!("{}: {other:?}", &text[..text.len().min(120)]),
         }
@@ -796,7 +796,119 @@ fn hdl_expansion_is_bounded() {
     let at_the_limit = format!(
         "module top (inout a);\n  leaf L (.x({{{MAX_EXPANDED_WIDTH}{{a}}}}));\nendmodule\n"
     );
+    let at_the_limit = with_budget_room(&at_the_limit);
     assert!(parse_systemverilog(&at_the_limit, &HdlOptions::default()).is_ok());
+}
+
+/// `text` with a 100 kB comment: a per-parse expansion budget of 6.4M units, so the
+/// per-expression cap is what a case meets.
+fn with_budget_room(text: &str) -> String {
+    format!("{text}/*{}*/\n", "x".repeat(100_000))
+}
+
+fn budget_error(result: Result<Circuit, Error>) -> String {
+    match result {
+        Err(Error::Validation(message)) if message.contains("expansion budget") => message,
+        other => panic!("expected the expansion budget error, got {other:?}"),
+    }
+}
+
+/// Small texts that each stay under the per-expression cap but would amplify to many
+/// millions of bits, pins or bytes: the per-parse budget refuses them.
+#[test]
+fn hdl_budget_bounds_amplification() {
+    let mut inherited = Vec::new();
+    for index in 0..100 {
+        inherited.push(format!("a{index}"));
+    }
+    let ansi_inheritance = format!(
+        "module top (input [999999:0] {});\nendmodule\n",
+        inherited.join(", ")
+    );
+    let wide_cell = "module c (input [99999:0] x);\nendmodule\n";
+    let mut broadcasts = String::from(wide_cell);
+    let mut unconnected = String::from(wide_cell);
+    broadcasts.push_str("module top ();\n");
+    unconnected.push_str("module top ();\n");
+    for index in 0..20 {
+        broadcasts.push_str(&format!("  c u{index} (1'b0);\n"));
+        unconnected.push_str(&format!("  c u{index} ();\n"));
+    }
+    broadcasts.push_str("endmodule\n");
+    unconnected.push_str("endmodule\n");
+    let mut params = Vec::new();
+    for index in 0..20 {
+        params.push(format!(".p{index}({index})"));
+    }
+    let array_with_params = format!(
+        "module top (inout n);\n  leaf #({}) L[99999:0] (.x(n));\nendmodule\n",
+        params.join(", ")
+    );
+    let define_blow_up = format!(
+        "`define A {}\nmodule top (inout a);\n  {}\nendmodule\n",
+        "x".repeat(10_000),
+        "`A ".repeat(200)
+    );
+    for text in [
+        &ansi_inheritance,
+        &broadcasts,
+        &unconnected,
+        &array_with_params,
+        &define_blow_up,
+    ] {
+        assert!(text.len() < 20_000, "{}", text.len());
+        budget_error(parse_systemverilog(text, &HdlOptions::default()));
+    }
+    let vams_define_blow_up = format!(
+        "`define A {}\nmodule top (a);\n  {}\nendmodule\n",
+        "x".repeat(10_000),
+        "`A ".repeat(200)
+    );
+    budget_error(parse_vams(&vams_define_blow_up));
+    let mut vams_unconnected =
+        String::from("module c (x);\n  inout [99999:0] x;\nendmodule\nmodule top ();\n");
+    for index in 0..20 {
+        vams_unconnected.push_str(&format!("  c u{index} (.x());\n"));
+    }
+    vams_unconnected.push_str("endmodule\n");
+    budget_error(parse_vams(&vams_unconnected));
+
+    // a realistic netlist stays far inside the budget
+    let simulation = options(&[("IS_SIM", "1")], &switch_types());
+    assert!(parse_systemverilog(SWITCH_SV, &simulation).is_ok());
+    assert!(parse_vams_with(SWITCH_VAMS, &simulation).is_ok());
+}
+
+/// IR from untrusted JSON: a port wider than the cap, or with a range no `i64` walk
+/// should cover, is written as a scalar, quickly and without a panic.
+#[test]
+fn writers_cap_untrusted_port_width() {
+    let ports = r#"[
+        {"name": "wide", "direction": 1, "width": 4000000000},
+        {"name": "huge", "direction": 1, "width": 2,
+         "properties": {"range": "9223372036854775807:-9223372036854775808"}}
+    ]"#;
+    let json = format!(
+        r#"{{"top_module": "top", "modules": [
+            {{"name": "cell", "ports": {ports}}},
+            {{"name": "top", "module_references": [{{"name": "u0", "module_name": "cell"}}]}}
+        ]}}"#
+    );
+    let circuit = Circuit::from_json(&json).unwrap();
+    let started = std::time::Instant::now();
+    let systemverilog = write_systemverilog(&circuit);
+    let vams = write_vams(&circuit);
+    assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    assert!(
+        systemverilog.contains("  input wide,\n  input huge\n"),
+        "{systemverilog}"
+    );
+    assert!(
+        systemverilog.contains("cell u0 (.wide(), .huge());"),
+        "{systemverilog}"
+    );
+    assert!(vams.contains("  input wide, huge;\n"), "{vams}");
+    assert!(vams.contains("cell u0 (.wide(), .huge());"), "{vams}");
 }
 
 // ── test_systemverilog_writer.py ─────────────────────────────────────────
@@ -1275,6 +1387,10 @@ module plain (a); endmodule
 module m (a); input [`W:0] a; endmodule
 ";
 
+fn budget(text: &str) -> ExpansionBudget {
+    ExpansionBudget::for_text(text)
+}
+
 fn defines(pairs: &[(&str, &str)]) -> IndexMap<String, String> {
     let mut defined = IndexMap::new();
     for (name, value) in pairs {
@@ -1285,7 +1401,9 @@ fn defines(pairs: &[(&str, &str)]) -> IndexMap<String, String> {
 
 #[test]
 fn vams_else_branch_without_defines() {
-    let text = preprocess_vams(CONDITIONALS, &defines(&[])).unwrap().text;
+    let text = preprocess_vams(CONDITIONALS, &defines(&[]), &mut budget(CONDITIONALS))
+        .unwrap()
+        .text;
     assert!(text.contains("module plain"), "{text}");
     assert!(
         !text.contains("module sim") && !text.contains("module fast"),
@@ -1296,13 +1414,21 @@ fn vams_else_branch_without_defines() {
 
 #[test]
 fn vams_defines_select_branches() {
-    let simulated = preprocess_vams(CONDITIONALS, &defines(&[("SIM", "1")]))
-        .unwrap()
-        .text;
+    let simulated = preprocess_vams(
+        CONDITIONALS,
+        &defines(&[("SIM", "1")]),
+        &mut budget(CONDITIONALS),
+    )
+    .unwrap()
+    .text;
     assert!(simulated.contains("module sim"), "{simulated}");
-    let fast = preprocess_vams(CONDITIONALS, &defines(&[("FAST", "")]))
-        .unwrap()
-        .text;
+    let fast = preprocess_vams(
+        CONDITIONALS,
+        &defines(&[("FAST", "")]),
+        &mut budget(CONDITIONALS),
+    )
+    .unwrap()
+    .text;
     assert!(
         fast.contains("module fast") && !fast.contains("module plain"),
         "{fast}"
@@ -1312,16 +1438,25 @@ fn vams_defines_select_branches() {
 #[test]
 fn vams_nested_inactive_branch_stays_inactive() {
     let text = "`ifdef A\n`ifdef B\nx;\n`else\ny;\n`endif\n`endif\nz;\n";
-    assert_eq!(preprocess_vams(text, &defines(&[])).unwrap().text, "z;\n");
+    assert_eq!(
+        preprocess_vams(text, &defines(&[]), &mut budget(text))
+            .unwrap()
+            .text,
+        "z;\n"
+    );
 }
 
 #[test]
 fn vams_unbalanced_raises() {
-    let unclosed = preprocess_vams("`ifdef A\nmodule m (a); endmodule\n", &defines(&[]));
+    let unclosed = preprocess_vams(
+        "`ifdef A\nmodule m (a); endmodule\n",
+        &defines(&[]),
+        &mut budget(""),
+    );
     assert!(
         matches!(unclosed, Err(Error::Validation(message)) if message.contains("without `endif"))
     );
-    let unopened = preprocess_vams("`else\n", &defines(&[]));
+    let unopened = preprocess_vams("`else\n", &defines(&[]), &mut budget(""));
     assert!(
         matches!(unopened, Err(Error::Validation(message)) if message.contains("`else without"))
     );

@@ -145,7 +145,7 @@ impl ModuleData {
 
     /// The declarations; a bare ANSI header name inherits the previous port's direction
     /// and type.
-    fn declarations(&mut self) -> Result<Declarations, Error> {
+    fn declarations(&mut self, budget: &mut ExpansionBudget) -> Result<Declarations, Error> {
         let mut declarations = Declarations::default();
         let ansi = self
             .ports
@@ -172,6 +172,7 @@ impl ModuleData {
                 &spec.name,
                 spec.port_type.as_ref(),
                 &spec.dims,
+                budget,
             )?;
         }
         for item in &self.items {
@@ -186,12 +187,14 @@ impl ModuleData {
                             &spec.name,
                             spec.port_type.as_ref(),
                             &spec.dims,
+                            budget,
                         )?;
                     }
                 }
                 ModuleItem::DataDecl(data_decl) => {
                     for (name, dims, _) in &data_decl.assigns {
-                        declare(&mut declarations, name, Some(&data_decl.data_type), dims)?;
+                        let data_type = Some(&data_decl.data_type);
+                        declare(&mut declarations, name, data_type, dims, budget)?;
                     }
                 }
                 _ => {}
@@ -221,11 +224,13 @@ fn add_public_params(names: &mut Vec<String>, specs: &[ParamSpec]) {
     }
 }
 
+/// Record one declared name; its bits are charged to `budget`.
 fn declare(
     declarations: &mut Declarations,
     name: &str,
     port_type: Option<&TypeSpec>,
     dims: &[Dim],
+    budget: &mut ExpansionBudget,
 ) -> Result<(), Error> {
     let mut all_dims = Vec::new();
     if let Some(port_type) = port_type {
@@ -238,7 +243,9 @@ fn declare(
         all_dims.extend(port_type.dims.iter().cloned());
     }
     all_dims.extend(dims.iter().cloned());
-    if let Some(range) = decl_range(name, &all_dims)? {
+    let range = decl_range(name, &all_dims)?;
+    budget.charge(range.map_or(1, range_width))?;
+    if let Some(range) = range {
         declarations.ranges.entry(name.to_string()).or_insert(range);
     }
     Ok(())
@@ -362,6 +369,7 @@ fn direction_of(text: &str) -> PortDirection {
 struct SystemVerilogTransformer<'a> {
     blocks: Vec<String>,
     options: &'a HdlOptions,
+    budget: ExpansionBudget,
     stimuli: Vec<Stimulus>,
     error: Option<Error>,
 }
@@ -492,7 +500,7 @@ impl SystemVerilogTransformer<'_> {
         }
         let mut declarations: IndexMap<String, Declarations> = IndexMap::new();
         for (name, module) in &mut modules {
-            declarations.insert(name.clone(), module.declarations()?);
+            declarations.insert(name.clone(), module.declarations(&mut self.budget)?);
         }
         let mut built = Vec::new();
         for module in modules.values() {
@@ -614,7 +622,7 @@ impl SystemVerilogTransformer<'_> {
         for group in &merges {
             let mut sides = Vec::new();
             for expression in group {
-                sides.push(resolve(expression, buses, 1)?);
+                sides.push(resolve(expression, buses, 1, &mut self.budget)?);
             }
             if sides.iter().any(|side| side.len() != sides[0].len()) {
                 let texts: Vec<String> = group.iter().map(NetExpression::text).collect();
@@ -682,10 +690,13 @@ impl SystemVerilogTransformer<'_> {
                         dim_text(&instance.dims[0])
                     )));
                 }
+                let count = range.map_or(1, range_width);
+                let budget = &mut self.budget;
+                charge_instances(count, target_ranges.as_ref(), params.len(), budget)?;
                 let names = instance_names(&instance.name, range)?;
                 for (port, expression) in connections(instance, &statement.module, target)? {
-                    let triples =
-                        connect(&names, &port, &expression, buses, target_ranges.as_ref())?;
+                    let ranges = target_ranges.as_ref();
+                    let triples = connect(&names, &port, &expression, buses, ranges, budget)?;
                     for (name, pin, net) in triples {
                         net_map.add(&find(&parent, &net), &name, &pin);
                     }
@@ -892,7 +903,7 @@ impl TreeTransform for SystemVerilogTransformer<'_> {
                     .next()
                     .map(|item| token_text(&item))
                     .unwrap_or_default();
-                match replicate(&count, items.map(expression_of).collect()) {
+                match replicate(&count, items.map(expression_of).collect(), &mut self.budget) {
                     Ok(expression) => Item::Expression(expression),
                     Err(error) => self.fail(error),
                 }
@@ -1132,13 +1143,15 @@ impl TreeTransform for SystemVerilogTransformer<'_> {
 /// port. Instance arrays `X I[3:0] (...)` expand to instances `I[3]` … `I[0]`. Width
 /// mismatches and selects of undeclared buses are `Error::Validation`.
 pub fn parse_systemverilog(text: &str, options: &HdlOptions) -> Result<Circuit, Error> {
-    let preprocessed = preprocess_systemverilog(text, &options.defines)?;
+    let mut budget = ExpansionBudget::for_text(text);
+    let preprocessed = preprocess_systemverilog(text, &options.defines, &mut budget)?;
     let directives = directives_of(&preprocessed.directives);
     let tree = ENGINE.with(|engine| engine.parse(&preprocessed.text))?;
     check_tree_depth(&tree)?;
     let mut transformer = SystemVerilogTransformer {
         blocks: preprocessed.blocks,
         options,
+        budget,
         stimuli: Vec::new(),
         error: None,
     };

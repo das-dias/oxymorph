@@ -207,5 +207,16 @@ b26cd6b, d5b82b2 (`decisions/0011`); `src/hdl.rs`, `src/formats/systemverilog.rs
   PWL file); Verilog-AMS writes the attributes and nodesets above.
 - Untrusted text: a bus range, a replication, an instance array, and the pins of one
   array connection expand to at most `hdl::MAX_EXPANDED_WIDTH` (1,000,000) bits or
-  instances, a parse tree nests at most `ast::MAX_TREE_DEPTH` (256) levels and
-  procedural statements at most 128; beyond that the parse is `Error::Validation`.
+  instances. On top of that, each parse holds one `hdl::ExpansionBudget` of
+  `max(1_000_000, 64 × input length in bytes)` units. It is charged for every declared
+  bit, every connection pin an expression or array yields (resolved bits, broadcasts,
+  replications, triples), every instance (itself, its master's port bits, which a
+  writer lists even when unconnected, and its params), and every byte `` `define ``
+  expansion outputs. A parse tree nests at most `ast::MAX_TREE_DEPTH` (256) levels and
+  procedural statements at most 128. Beyond any of these, the parse is
+  `Error::Validation` (the budget's message names it).
+- Writers keep infallible signatures and trust the IR only up to the same cap: a port
+  whose `width` or `properties["range"]` exceeds 1,000,000 bits, or whose range cannot
+  be represented, is written as a scalar, and its range is never walked. IR built from
+  JSON can still cost up to instances × 1,000,000 pin names per port when written; a
+  fallible `try_write_*` would bound that.

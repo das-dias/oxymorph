@@ -175,14 +175,21 @@ pub struct VamsTransformer<'a> {
     nodesets: IndexMap<String, IndexMap<String, ParameterValue>>,
     /// Stimuli of the source primitives, named and in build order.
     stimuli: Vec<Stimulus>,
+    /// What the parse may still expand to.
+    budget: ExpansionBudget,
     error: Option<Error>,
 }
 
 impl<'a> VamsTransformer<'a> {
-    pub fn new(analog_blocks: Vec<String>, options: &'a HdlOptions) -> Self {
+    pub fn new(
+        analog_blocks: Vec<String>,
+        options: &'a HdlOptions,
+        budget: ExpansionBudget,
+    ) -> Self {
         Self {
             analog_blocks,
             options,
+            budget,
             attributes: IndexMap::new(),
             initial: Vec::new(),
             nodesets: IndexMap::new(),
@@ -328,7 +335,7 @@ impl TreeTransform for VamsTransformer<'_> {
                     .next()
                     .map(|item| tok(&item).unwrap_or("").to_string())
                     .unwrap_or_default();
-                match replicate(&count, items.map(expression_of).collect()) {
+                match replicate(&count, items.map(expression_of).collect(), &mut self.budget) {
                     Ok(expression) => Item::Expression(expression),
                     Err(error) => self.fail(error),
                 }
@@ -343,7 +350,7 @@ impl TreeTransform for VamsTransformer<'_> {
                     Some(Item::DeclNames(names)) => names.clone(),
                     _ => Vec::new(),
                 };
-                match declaration_data(keyword, packed, &names) {
+                match declaration_data(keyword, packed, &names, &mut self.budget) {
                     Ok(data) if name == "port_dir_decl" => {
                         Item::PortDir(dir_map(&data.keyword), data)
                     }
@@ -549,10 +556,12 @@ fn attribute_value(value: Option<&Item>) -> Result<String, Error> {
     Ok(value_text(value, Dialect::Vams))
 }
 
+/// The declared names and ranges; every declared bit is charged to `budget`.
 fn declaration_data(
     keyword: String,
     packed: Option<Dim>,
     names: &[(String, Vec<Dim>)],
+    budget: &mut ExpansionBudget,
 ) -> Result<DeclarationData, Error> {
     let mut ranges = Buses::new();
     let mut declared = Vec::new();
@@ -561,7 +570,9 @@ fn declaration_data(
         let mut all_dims = Vec::new();
         all_dims.extend(packed.clone());
         all_dims.extend(dims.iter().cloned());
-        if let Some(range) = decl_range(name, &all_dims)? {
+        let range = decl_range(name, &all_dims)?;
+        budget.charge(range.map_or(1, range_width))?;
+        if let Some(range) = range {
             ranges.insert(name.clone(), range);
         }
     }
@@ -819,8 +830,11 @@ impl VamsTransformer<'_> {
                     inst.dims[0].join(":")
                 )));
             }
-            let names = instance_names(&inst.name, range)?;
             let target_ranges = target.map(VamsModule::port_ranges);
+            let count = range.map_or(1, range_width);
+            let ranges = target_ranges.as_ref();
+            charge_instances(count, ranges, params.len(), &mut self.budget)?;
+            let names = instance_names(&inst.name, range)?;
             let mut connections: Vec<(String, Option<&NetExpression>)> = Vec::new();
             for (port, expression) in &inst.named_ports {
                 connections.push((port.clone(), expression.as_ref()));
@@ -842,6 +856,7 @@ impl VamsTransformer<'_> {
                     expression,
                     &module.buses,
                     target_ranges.as_ref(),
+                    &mut self.budget,
                 )?;
                 for (name, pin, net) in triples {
                     net_map.add(&net, &name, &pin);
@@ -1071,10 +1086,11 @@ pub fn parse_vams(text: &str) -> Result<Circuit, Error> {
 /// `X I[3:0] (...)` expand to `I[3]` … `I[0]`. Width mismatches and selects of undeclared
 /// buses are `Error::Validation`.
 pub fn parse_vams_with(text: &str, options: &HdlOptions) -> Result<Circuit, Error> {
-    let pre = preprocess_vams(text, &options.defines)?;
+    let mut budget = ExpansionBudget::for_text(text);
+    let pre = preprocess_vams(text, &options.defines, &mut budget)?;
     let tree = ENGINE.with(|engine| engine.parse(&pre.text))?;
     check_tree_depth(&tree)?;
-    let mut transformer = VamsTransformer::new(pre.analog_blocks, options);
+    let mut transformer = VamsTransformer::new(pre.analog_blocks, options, budget);
     let result = transformer.transform(&tree);
     if let Some(error) = transformer.error {
         return Err(error);

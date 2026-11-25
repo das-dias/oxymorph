@@ -223,10 +223,11 @@ pub(crate) fn directive_re() -> &'static Regex {
 pub fn preprocess_vams(
     text: &str,
     defines: &indexmap::IndexMap<String, String>,
+    budget: &mut crate::hdl::ExpansionBudget,
 ) -> Result<VamsPreprocessResult, crate::Error> {
     let text = block_comment_re().replace_all(text, "").to_string();
     let text = line_comment_re().replace_all(&text, "").to_string();
-    let text = crate::hdl::apply_defines(&text, defines)?;
+    let text = crate::hdl::apply_defines(&text, defines, budget)?;
 
     let mut directives: Vec<(String, String)> = Vec::new();
     for caps in directive_re().captures_iter(&text) {

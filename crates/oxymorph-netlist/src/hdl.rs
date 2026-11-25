@@ -6,8 +6,9 @@
 //!   meets bit 0 of port `in`.
 //! - [`format_bits`]: the writers' inverse, bits back to `bus[m:l]` / `{…}`.
 //!
-//! Text is untrusted: every expansion (a bus range, a replication, an instance array,
-//! the pins of one array connection) is capped at [`MAX_EXPANDED_WIDTH`].
+//! Text is untrusted. Every expansion (a bus range, a replication, an instance array,
+//! the pins of one array connection) is capped at [`MAX_EXPANDED_WIDTH`], and one
+//! [`ExpansionBudget`] per parse bounds what a whole text expands to.
 
 use std::sync::OnceLock;
 
@@ -22,6 +23,41 @@ use crate::helpers::{domain_of, net_map_to_connections, open_node, NetMap, PinDo
 
 /// The most bits (or instances) one expression, declaration or instance array expands to.
 pub const MAX_EXPANDED_WIDTH: usize = 1_000_000;
+
+/// What one parse may expand to, in units (a declared bit, a connection pin, an instance
+/// with its master's port bits and its params, a byte of `` `define `` output):
+/// `max(1_000_000, 64 × text length)`. Held by the parse, so small texts cannot amplify.
+#[derive(Clone, Debug)]
+pub struct ExpansionBudget {
+    limit: usize,
+    used: usize,
+}
+
+impl ExpansionBudget {
+    const FLOOR: usize = 1_000_000;
+    const UNITS_PER_BYTE: usize = 64;
+
+    /// The budget of a parse of `text`.
+    pub fn for_text(text: &str) -> Self {
+        let scaled = text.len().saturating_mul(Self::UNITS_PER_BYTE);
+        Self {
+            limit: scaled.max(Self::FLOOR),
+            used: 0,
+        }
+    }
+
+    /// Spend `units`; `Error::Validation` naming the budget once it is exceeded.
+    pub fn charge(&mut self, units: usize) -> Result<(), Error> {
+        self.used = self.used.saturating_add(units);
+        if self.used > self.limit {
+            return Err(validation(format!(
+                "the text expands past its expansion budget of {} units",
+                self.limit
+            )));
+        }
+        Ok(())
+    }
+}
 
 /// Options of the HDL parsers (`parse_systemverilog`, `parse_vams_with`).
 #[derive(Clone, Debug, Default)]
@@ -74,7 +110,11 @@ struct Conditional {
 /// `defines` are the predefined macros; with none, an `` `ifdef X … `else … `endif`` takes
 /// the `` `else `` branch, like a compiler. `` `define `` lines in active code register a
 /// macro and are kept (they are recorded as directives).
-pub fn apply_defines(text: &str, defines: &IndexMap<String, String>) -> Result<String, Error> {
+pub fn apply_defines(
+    text: &str,
+    defines: &IndexMap<String, String>,
+    budget: &mut ExpansionBudget,
+) -> Result<String, Error> {
     let mut macros = defines.clone();
     let mut output = String::with_capacity(text.len());
     let mut stack: Vec<Conditional> = Vec::new();
@@ -118,13 +158,15 @@ pub fn apply_defines(text: &str, defines: &IndexMap<String, String>) -> Result<S
             Some("define") => {
                 let value = captures.as_ref().map(|found| found[3].to_string());
                 macros.insert(name, value.unwrap_or_default());
+                budget.charge(line.len())?;
                 output.push_str(line);
             }
             Some(_) => {
                 macros.shift_remove(&name);
+                budget.charge(line.len())?;
                 output.push_str(line);
             }
-            None => output.push_str(&expand_macros(line, &macros)),
+            None => expand_macros(line, &macros, &mut output, budget)?,
         }
     }
     if !stack.is_empty() {
@@ -133,20 +175,29 @@ pub fn apply_defines(text: &str, defines: &IndexMap<String, String>) -> Result<S
     Ok(output)
 }
 
-fn expand_macros(line: &str, macros: &IndexMap<String, String>) -> String {
-    let mut expanded = String::with_capacity(line.len());
+/// `line` with its macros expanded onto `output`, each piece charged before it is added.
+fn expand_macros(
+    line: &str,
+    macros: &IndexMap<String, String>,
+    output: &mut String,
+    budget: &mut ExpansionBudget,
+) -> Result<(), Error> {
+    budget.charge(line.len())?;
     let mut last = 0;
     for captures in macro_re().captures_iter(line) {
         let whole = captures.get(0).expect("group 0");
-        expanded.push_str(&line[last..whole.start()]);
+        output.push_str(&line[last..whole.start()]);
         match macros.get(&captures[1]) {
-            Some(value) => expanded.push_str(value),
-            None => expanded.push_str(whole.as_str()),
+            Some(value) => {
+                budget.charge(value.len())?;
+                output.push_str(value);
+            }
+            None => output.push_str(whole.as_str()),
         }
         last = whole.end();
     }
-    expanded.push_str(&line[last..]);
-    expanded
+    output.push_str(&line[last..]);
+    Ok(())
 }
 
 // ── Directives (shared by both parsers and writers) ──────────────────────
@@ -241,8 +292,13 @@ impl NetExpression {
     }
 }
 
-/// `{count{parts}}`: the parts repeated `count` times, refused beyond the expansion cap.
-pub fn replicate(count_text: &str, parts: Vec<NetExpression>) -> Result<NetExpression, Error> {
+/// `{count{parts}}`: the parts repeated `count` times, refused beyond the expansion cap,
+/// charged to `budget` before they are copied.
+pub fn replicate(
+    count_text: &str,
+    parts: Vec<NetExpression>,
+    budget: &mut ExpansionBudget,
+) -> Result<NetExpression, Error> {
     let count = to_int(count_text)
         .filter(|count| *count >= 1)
         .ok_or_else(|| {
@@ -260,6 +316,7 @@ pub fn replicate(count_text: &str, parts: Vec<NetExpression>) -> Result<NetExpre
     if total > MAX_EXPANDED_WIDTH {
         return Err(too_wide(&format!("{{{count_text}{{…}}}}"), total));
     }
+    budget.charge(total)?;
     let mut repeated = Vec::with_capacity(total);
     for _ in 0..count {
         repeated.extend(parts.iter().cloned());
@@ -343,24 +400,29 @@ pub fn bit_names(name: &str, range: Range) -> Vec<String> {
 }
 
 /// Bit nets (msb first) of a connection expression. A literal is a constant tie repeated
-/// over `width` bits. Selects of undeclared buses or out-of-range bits are errors.
+/// over `width` bits. Selects of undeclared buses or out-of-range bits are errors. Every
+/// bit is charged to `budget` before it is made.
 pub fn resolve(
     expression: &NetExpression,
     buses: &Buses,
     width: usize,
+    budget: &mut ExpansionBudget,
 ) -> Result<Vec<String>, Error> {
     match expression {
         NetExpression::Concat(parts) => {
             let mut nets = Vec::new();
             for part in parts {
-                nets.extend(resolve(part, buses, 1)?);
+                nets.extend(resolve(part, buses, 1, budget)?);
                 if nets.len() > MAX_EXPANDED_WIDTH {
                     return Err(too_wide(&expression.text(), nets.len()));
                 }
             }
             Ok(nets)
         }
-        NetExpression::Literal(text) => Ok(vec![text.clone(); width]),
+        NetExpression::Literal(text) => {
+            budget.charge(width)?;
+            Ok(vec![text.clone(); width])
+        }
         NetExpression::Text(text) => {
             Err(validation(format!("unsupported net expression '{text}'")))
         }
@@ -368,8 +430,14 @@ pub fn resolve(
             let bus = buses.get(name).copied();
             if select.is_empty() {
                 return match bus {
-                    Some(range) => bits(name, range),
-                    None => Ok(vec![name.clone()]),
+                    Some(range) => {
+                        budget.charge(range_width(range))?;
+                        bits(name, range)
+                    }
+                    None => {
+                        budget.charge(1)?;
+                        Ok(vec![name.clone()])
+                    }
                 };
             }
             let text = expression.text();
@@ -392,7 +460,9 @@ pub fn resolve(
                     }
                 }
             }
-            bits(name, (indices[0], indices[indices.len() - 1]))
+            let selected = (indices[0], indices[indices.len() - 1]);
+            budget.charge(range_width(selected))?;
+            bits(name, selected)
         }
     }
 }
@@ -405,6 +475,7 @@ pub fn split_array(
     nets: Vec<String>,
     count: usize,
     width: Option<usize>,
+    budget: &mut ExpansionBudget,
 ) -> Result<Vec<Vec<String>>, Error> {
     let total = nets.len();
     let width = width.unwrap_or(if total.is_multiple_of(count) {
@@ -425,6 +496,7 @@ pub fn split_array(
         if pins > MAX_EXPANDED_WIDTH {
             return Err(too_wide("broadcast", pins));
         }
+        budget.charge(pins)?;
         return Ok(vec![nets; count]);
     }
     Err(validation(format!(
@@ -436,13 +508,14 @@ pub fn split_array(
 ///
 /// `port_ranges` are the target module's port ranges (None = scalar), or None when the
 /// module is not defined: its port then takes the width of the expression, with bits
-/// `port[n-1]` … `port[0]`.
+/// `port[n-1]` … `port[0]`. Every triple is charged to `budget`.
 pub fn connect(
     instances: &[String],
     port: &str,
     expression: &NetExpression,
     buses: &Buses,
     port_ranges: Option<&IndexMap<String, Option<Range>>>,
+    budget: &mut ExpansionBudget,
 ) -> Result<Vec<(String, String, String)>, Error> {
     let known = port_ranges.is_some_and(|ranges| ranges.contains_key(port));
     let range = port_ranges.and_then(|ranges| ranges.get(port).copied().flatten());
@@ -451,9 +524,8 @@ pub fn connect(
     } else {
         None
     };
-    let chunks = resolve(expression, buses, width.unwrap_or(1))
-        .and_then(|nets| split_array(nets, instances.len(), width))
-        .map_err(|error| {
+    let chunks =
+        connection_chunks(expression, buses, instances.len(), width, budget).map_err(|error| {
             let message = match error {
                 Error::Validation(message) => message,
                 other => other.to_string(),
@@ -476,6 +548,40 @@ pub fn connect(
         }
     }
     Ok(triples)
+}
+
+/// The per-instance bits of one connection, each future triple charged to `budget`.
+fn connection_chunks(
+    expression: &NetExpression,
+    buses: &Buses,
+    count: usize,
+    width: Option<usize>,
+    budget: &mut ExpansionBudget,
+) -> Result<Vec<Vec<String>>, Error> {
+    let nets = resolve(expression, buses, width.unwrap_or(1), budget)?;
+    let chunks = split_array(nets, count, width, budget)?;
+    let mut triples: usize = 0;
+    for chunk in &chunks {
+        triples = triples.saturating_add(chunk.len());
+    }
+    budget.charge(triples)?;
+    Ok(chunks)
+}
+
+/// Charge the instances of one instance statement (`count` of them, an array or one):
+/// each costs itself, its master's port bits (a writer lists every one, connected or not)
+/// and its params.
+pub fn charge_instances(
+    count: usize,
+    port_ranges: Option<&IndexMap<String, Option<Range>>>,
+    params: usize,
+    budget: &mut ExpansionBudget,
+) -> Result<(), Error> {
+    let mut each = params.saturating_add(1);
+    for range in port_ranges.into_iter().flat_map(IndexMap::values) {
+        each = each.saturating_add(range.map_or(1, range_width));
+    }
+    budget.charge(count.saturating_mul(each))
 }
 
 /// `I[3]` … `I[0]` for an instance array `I[3:0]`, else `[name]`.
@@ -563,17 +669,20 @@ pub fn sv_name(name: &str) -> String {
     }
 }
 
-/// Range of a schema port (`width` + `range` property); None if scalar.
+/// Range of a schema port (`width` + `range` property); None if scalar. The IR may come
+/// from untrusted JSON: a port wider than [`MAX_EXPANDED_WIDTH`] is written as a scalar,
+/// so its range is never walked.
 pub fn declared_range(width: u32, range_text: Option<&str>) -> Option<Range> {
     let range = range_text.filter(|text| !text.is_empty()).and_then(|text| {
         let parts: Vec<String> = text.split(':').map(str::to_string).collect();
         to_range(&parts)
     });
-    if range.is_some() || width <= 1 {
+    let range = if range.is_some() || width <= 1 {
         range
     } else {
         Some((i64::from(width) - 1, 0))
-    }
+    };
+    range.filter(|range| range_width(*range) <= MAX_EXPANDED_WIDTH)
 }
 
 /// Bit pins of a (possibly bus) port, as registered by the parsers.
@@ -679,6 +788,9 @@ pub fn connection_expr(
 }
 
 /// `(port name, bit pins)` of the master's ports, or the pins the instance uses.
+// ponytail: writers stay infallible, so IR built from JSON costs at most
+// instances × MAX_EXPANDED_WIDTH pin names per port here (parsed text is charged for it
+// by `ExpansionBudget`); add a fallible `try_write_*` with a budget if that matters.
 pub fn port_order(
     reference: &ModuleReference,
     circuit: &Circuit,

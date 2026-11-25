@@ -9,7 +9,7 @@ use regex::{Captures, Regex};
 
 use super::{block_comment_re, directive_re, line_comment_re};
 use crate::error::Error;
-use crate::hdl::apply_defines;
+use crate::hdl::{apply_defines, ExpansionBudget};
 
 /// How deep procedural statements may nest (`if (a) if (b) …`, `@(x) @(y) …`).
 pub const MAX_STATEMENT_DEPTH: usize = 128;
@@ -160,12 +160,13 @@ fn strip_attributes(text: &str) -> String {
 pub fn preprocess_systemverilog(
     text: &str,
     defines: &IndexMap<String, String>,
+    budget: &mut ExpansionBudget,
 ) -> Result<SvPreprocessResult, Error> {
     let text = block_comment_re().replace_all(text, "");
     let text = line_comment_re().replace_all(&text, "");
     let text = pwl_file_re().replace_all(&text, pwl_file_param); // kept: the rest are dropped
     let text = strip_attributes(&text);
-    let text = apply_defines(&text, defines)?;
+    let text = apply_defines(&text, defines, budget)?;
 
     let mut directives = Vec::new();
     for captures in directive_re().captures_iter(&text) {
