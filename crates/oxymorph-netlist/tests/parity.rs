@@ -36,10 +36,98 @@ fn write(format: &str, c: &Circuit) -> String {
     }
 }
 
+fn overrides_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/corpus/overrides.json")
+}
+
+fn parity_md_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../specs/parity.md")
+}
+
+fn load_cases() -> Vec<serde_json::Value> {
+    let data = std::fs::read_to_string(corpus_path()).expect("corpus is committed");
+    serde_json::from_str(&data).expect("valid corpus")
+}
+
+fn load_overrides() -> serde_json::Value {
+    let data = std::fs::read_to_string(overrides_path()).expect("overrides are committed");
+    serde_json::from_str(&data).expect("valid overrides")
+}
+
+fn case_key(case: &serde_json::Value) -> String {
+    format!(
+        "{}/{}",
+        case["format"].as_str().unwrap(),
+        case["name"].as_str().unwrap()
+    )
+}
+
+/// Problems with the overrides: an `r4` id missing from the R4 table of `parity_md`,
+/// or a key that is not a corpus case.
+fn check_overrides(
+    overrides: &serde_json::Value,
+    parity_md: &str,
+    case_keys: &[String],
+) -> Vec<String> {
+    let r4_section = parity_md
+        .split("## R4.")
+        .nth(1)
+        .and_then(|rest| rest.split("\n## ").next())
+        .unwrap_or("");
+    let r4_ids: Vec<&str> = r4_section
+        .lines()
+        .filter(|line| line.starts_with('|'))
+        .filter_map(|line| line.split('|').nth(1))
+        .map(str::trim)
+        .collect();
+
+    let mut problems = Vec::new();
+    for (key, entry) in overrides.as_object().expect("overrides are an object") {
+        if !case_keys.contains(key) {
+            problems.push(format!("{key}: not a corpus case"));
+        }
+        match entry["r4"].as_str() {
+            Some(id) if r4_ids.contains(&id) => {}
+            Some(id) => problems.push(format!("{key}: R4 id {id} is not in specs/parity.md")),
+            None => problems.push(format!("{key}: no r4 id")),
+        }
+    }
+    problems
+}
+
+#[test]
+fn override_check_reports_unknown_r4_ids_and_cases() {
+    let parity_md = "## R4. Known\n\n| id | x |\n|---|---|\n| kf-known | y |\n\n## R5. Next\n\n| kf-other | z |\n";
+    let case_keys = vec!["spice/a".to_string()];
+
+    let valid = serde_json::json!({"spice/a": {"r4": "kf-known"}});
+    assert!(check_overrides(&valid, parity_md, &case_keys).is_empty());
+
+    let unknown_r4 = serde_json::json!({"spice/a": {"r4": "kf-other"}});
+    assert_eq!(check_overrides(&unknown_r4, parity_md, &case_keys).len(), 1);
+
+    let unknown_case = serde_json::json!({"spice/b": {"r4": "kf-known"}});
+    assert_eq!(
+        check_overrides(&unknown_case, parity_md, &case_keys).len(),
+        1
+    );
+
+    let missing_r4 = serde_json::json!({"spice/a": {}});
+    assert_eq!(check_overrides(&missing_r4, parity_md, &case_keys).len(), 1);
+}
+
+#[test]
+fn overrides_reference_r4_rows_and_name_existing_cases() {
+    let case_keys: Vec<String> = load_cases().iter().map(case_key).collect();
+    let parity_md = std::fs::read_to_string(parity_md_path()).expect("parity spec exists");
+    let problems = check_overrides(&load_overrides(), &parity_md, &case_keys);
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
+}
+
 #[test]
 fn parse_and_write_match_the_oracle() {
-    let data = std::fs::read_to_string(corpus_path()).expect("corpus is committed");
-    let cases: Vec<serde_json::Value> = serde_json::from_str(&data).expect("valid corpus");
+    let cases = load_cases();
+    let overrides = load_overrides();
 
     let mut failures: Vec<String> = Vec::new();
     let mut parse_checked = 0usize;
@@ -50,6 +138,8 @@ fn parse_and_write_match_the_oracle() {
         let format = case["format"].as_str().unwrap();
         let name = case["name"].as_str().unwrap();
         let input = case["input"].as_str().unwrap();
+        let over = &overrides[case_key(case)];
+        let expected_json = over.get("json").unwrap_or(&case["json"]);
 
         let circuit = match parse(format, input) {
             Ok(c) => c,
@@ -61,7 +151,7 @@ fn parse_and_write_match_the_oracle() {
         parse_checked += 1;
 
         let actual: serde_json::Value = serde_json::from_str(&circuit.to_json().unwrap()).unwrap();
-        if actual != case["json"] {
+        if &actual != expected_json {
             failures.push(format!("{format}/{name}: IR differs from oracle"));
         }
 
@@ -80,7 +170,11 @@ fn parse_and_write_match_the_oracle() {
 
         if let Some(writes) = case["writes"].as_object() {
             for (wfmt, expected) in writes {
-                let expected = expected.as_str().unwrap();
+                let expected = over["writes"]
+                    .get(wfmt)
+                    .unwrap_or(expected)
+                    .as_str()
+                    .unwrap();
                 let got = write(wfmt, &circuit);
                 write_checked += 1;
                 if got != expected {

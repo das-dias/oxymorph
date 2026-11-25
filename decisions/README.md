@@ -80,3 +80,4 @@ How we will know the decision is honored (commands, tests, checks).
 | [0008](0008-python-bindings-and-docs.md) | Python bindings and documentation site | implemented |
 | [0009](0009-wasm-and-playground.md) | WebAssembly target and docs playground | implemented |
 | [0010](0010-protobuf-interchange.md) | Protobuf interchange implemented | implemented |
+| [0011](0011-extend-beyond-upstream-morphnet.md) | Extend beyond upstream morphnet | decided |

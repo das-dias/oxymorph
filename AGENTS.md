@@ -30,7 +30,9 @@ SPICE-family / Verilog-AMS netlist parsing through a shared Protocol Buffers IR.
   [`specs/parity.md`](specs/parity.md) and
   [`decisions/0004`](decisions/0004-parity-policy.md).
 - **Do not fix upstream bugs.** Log them in `specs/parity.md` §R4 and reproduce
-  the buggy behaviour. A fix is a deliberate divergence and needs an ADR first.
+  the buggy behaviour. A fix is a deliberate divergence and needs an ADR first
+  ([`decisions/0011`](decisions/0011-extend-beyond-upstream-morphnet.md) covers
+  fixes ported from kfnetlist, via `tests/corpus/overrides.json`).
 - Code that intentionally deviates carries `// parity: <id>` resolving to an R4
   row.
 
@@ -41,8 +43,12 @@ SPICE-family / Verilog-AMS netlist parsing through a shared Protocol Buffers IR.
 - **One-way layering:** `oxymorph-schema` ← `oxymorph-netlist` ← `oxymorph`
   ← bindings. `oxymorph-schema` must never depend on parsing.
 - **The IR is Pydantic-normative** ([`decisions/0005`](decisions/0005-ir-and-protobuf.md)).
-  When the proto and the Pydantic models disagree, Python's behaviour wins.
-- **Grammars are verbatim upstream `.lark` files**, embedded via `include_lark!`
+  When the proto and the Pydantic models disagree, Python's behaviour wins. For
+  types added by the kfnetlist port, the kfnetlist Pydantic models at `e596bb5`
+  are the normative spec (read, not executed;
+  [`decisions/0011`](decisions/0011-extend-beyond-upstream-morphnet.md)).
+- **Grammars are verbatim `.lark` files from kfnetlist `f020af6`** (upstream
+  morphnet's until the port reaches it), embedded via `include_lark!`
   ([`decisions/0002`](decisions/0002-parser-engine.md)). Do not translate them to
   another parser DSL, and do not edit them to make a test pass.
 - **The parser is behind our own trait.** Generated tree/error types must not

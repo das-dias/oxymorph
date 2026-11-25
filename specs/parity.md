@@ -5,7 +5,8 @@ morphnet. Authoritative for what "functionally the same" means, how it is
 verified, and which upstream defects we knowingly reproduce.
 
 Related decisions: `decisions/0001` (port, exact match), `decisions/0002`
-(parser engine), `decisions/0004` (bug-for-bug parity policy).
+(parser engine), `decisions/0004` (bug-for-bug parity policy), `decisions/0011`
+(divergence for ported kfnetlist features).
 The plan for reaching this contract lives in `ROADMAP.md` §Testing plan.
 
 ## Scope
@@ -73,6 +74,9 @@ Formats: `spice`, `hspice`, `xyce`, `spectre`, `spectre-spice`, `vams`
     `test_*_roundtrip.py`, `test_*_simulation.py`, `test_value_utils.py`,
     `test_circuit_models.py` (extracted by AST walk).
   - `examples/inverter.py`, `examples/mzi.py` — builder-API scripts.
+  - `tests/corpus/overrides.json` — replaces the expected `json` / `writes[fmt]`
+    of named original-corpus cases that a ported fix changes; every entry names
+    an R4 row.
 - **R2.2 Extraction** — a one-time step per re-vendor (`tools/extract_oracle.py`),
   run with `uv` against the vendored Python, emitting committed fixtures under
   `tests/corpus/` and a provenance manifest. Core tests then run offline with no
@@ -99,10 +103,15 @@ Formats: `spice`, `hspice`, `xyce`, `spectre`, `spectre-spice`, `vams`
 ## R4. Known upstream issues
 
 Policy: reproduce upstream behavior exactly, including bugs
-(`decisions/0004`).
+(`decisions/0004`). The exception is a ported kfnetlist fix that changes an
+original-corpus expectation (`decisions/0011`): it is a `diverged` row, its
+cases are listed in `tests/corpus/overrides.json`, and the code carrying it is
+marked `// parity: <id>`. Such ids are `kf-<short-slug>`.
+`overrides_reference_r4_rows_and_name_existing_cases` fails if an override names
+an id that is not in this table or a case that is not in the corpus.
 
 | id | upstream | symptom | our behavior | repro | status | ADR |
-|---|---|---|---|---|---|---|---|
+|---|---|---|---|---|---|---|
 | _None found._ The port matched upstream on all 357 corpus cases and all 2142 writer outputs, so no upstream defect required reproduction at this point. | | | | | | |
 
 Status values: `open` (reproduced, awaiting upstream fix), `fixed-upstream`
