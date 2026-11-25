@@ -176,6 +176,7 @@ impl ParameterValue {
         ParameterValue(xs::ParameterValue {
             prefixed_value: prefixed_value.map(|p| p.borrow().0.clone()),
             model_ref: model_ref.map(|m| m.borrow().0.clone()),
+            ..Default::default()
         })
     }
     #[getter]

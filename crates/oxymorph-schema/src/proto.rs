@@ -1,8 +1,10 @@
-//! Protobuf interchange: convert the IR to/from the upstream `.proto` wire
-//! format (`vendor/morphnet/protos/*.proto`), from `decisions/0005`/`0006`.
+//! Protobuf interchange: convert the IR to/from the `.proto` wire format, from
+//! `decisions/0005`/`0006`/`0010`. The protos (`crates/oxymorph-schema/proto/`)
+//! are kfnetlist's with oxymorph's names (`decisions/0011`): upstream morphnet's
+//! (`vendor/morphnet/protos/`) plus fields, with every field number unchanged.
 //!
 //! The generated types are `prost` structs; the field naming (e.g. `terminals`
-//! for our `ports`) and the `ParameterValue` oneof are mapped here.
+//! for our `ports`) and the `ParameterValue` / `Expression` oneofs are mapped here.
 
 use prost::Message;
 
@@ -103,6 +105,37 @@ fn akind_from(v: i32) -> AnalysisKind {
         _ => AnalysisKind::Unspecified,
     }
 }
+fn operator_from(value: i32) -> Operator {
+    match value {
+        1 => Operator::Add,
+        2 => Operator::Sub,
+        3 => Operator::Mul,
+        4 => Operator::Div,
+        5 => Operator::Pow,
+        6 => Operator::Mod,
+        7 => Operator::Neg,
+        8 => Operator::Not,
+        9 => Operator::Eq,
+        10 => Operator::Ne,
+        11 => Operator::Lt,
+        12 => Operator::Le,
+        13 => Operator::Gt,
+        14 => Operator::Ge,
+        15 => Operator::And,
+        16 => Operator::Or,
+        _ => Operator::Unspecified,
+    }
+}
+fn waveform_kind_from(value: i32) -> WaveformKind {
+    match value {
+        1 => WaveformKind::Pulse,
+        2 => WaveformKind::Sin,
+        3 => WaveformKind::Exp,
+        4 => WaveformKind::Sffm,
+        5 => WaveformKind::Pwl,
+        _ => WaveformKind::Unspecified,
+    }
+}
 fn okind_from(v: i32) -> OutputRequestKind {
     match v {
         1 => OutputRequestKind::Print,
@@ -144,27 +177,119 @@ impl PrefixedValue {
 
 impl ParameterValue {
     fn to_wire(&self) -> wire::ParameterValue {
-        let value = if let Some(pv) = &self.prefixed_value {
-            Some(wire::parameter_value::Value::PrefixedValue(pv.to_wire()))
+        use wire::parameter_value::Value;
+        let value = if let Some(prefixed_value) = &self.prefixed_value {
+            Some(Value::PrefixedValue(prefixed_value.to_wire()))
+        } else if let Some(model_ref) = &self.model_ref {
+            Some(Value::ModelRef(model_ref.to_wire()))
         } else {
-            self.model_ref
+            self.expression
                 .as_ref()
-                .map(|mr| wire::parameter_value::Value::ModelRef(mr.to_wire()))
+                .map(|expression| Value::Expression(expression.to_wire()))
         };
         wire::ParameterValue { value }
     }
-    fn from_wire(p: wire::ParameterValue) -> Self {
-        match p.value {
-            Some(wire::parameter_value::Value::PrefixedValue(pv)) => ParameterValue {
-                prefixed_value: Some(PrefixedValue::from_wire(pv)),
-                model_ref: None,
+    fn from_wire(message: wire::ParameterValue) -> Self {
+        use wire::parameter_value::Value;
+        match message.value {
+            Some(Value::PrefixedValue(prefixed_value)) => ParameterValue {
+                prefixed_value: Some(PrefixedValue::from_wire(prefixed_value)),
+                ..Default::default()
             },
-            Some(wire::parameter_value::Value::ModelRef(mr)) => ParameterValue {
-                prefixed_value: None,
-                model_ref: Some(ModelReference::from_wire(mr)),
+            Some(Value::ModelRef(model_ref)) => ParameterValue {
+                model_ref: Some(ModelReference::from_wire(model_ref)),
+                ..Default::default()
+            },
+            Some(Value::Expression(expression)) => ParameterValue {
+                expression: Some(Expression::from_wire(expression)),
+                ..Default::default()
             },
             None => ParameterValue::default(),
         }
+    }
+}
+
+fn boxed_expression_to_wire(expression: &Option<Box<Expression>>) -> Option<Box<wire::Expression>> {
+    expression.as_deref().map(|inner| Box::new(inner.to_wire()))
+}
+
+fn boxed_expression_from_wire(message: Option<Box<wire::Expression>>) -> Option<Box<Expression>> {
+    message.map(|inner| Box::new(Expression::from_wire(*inner)))
+}
+
+impl Expression {
+    /// The first node set, in field order (an invalid tree keeps one node).
+    fn to_wire(&self) -> wire::Expression {
+        use wire::expression::Node;
+        let node = if let Some(literal) = &self.literal {
+            Some(Node::Literal(literal.to_wire()))
+        } else if let Some(reference) = &self.reference {
+            Some(Node::Reference(reference.clone()))
+        } else if let Some(unary) = &self.unary {
+            Some(Node::Unary(Box::new(wire::UnaryOp {
+                op: unary.op as i32,
+                operand: boxed_expression_to_wire(&unary.operand),
+            })))
+        } else if let Some(binary) = &self.binary {
+            Some(Node::Binary(Box::new(wire::BinaryOp {
+                op: binary.op as i32,
+                lhs: boxed_expression_to_wire(&binary.lhs),
+                rhs: boxed_expression_to_wire(&binary.rhs),
+            })))
+        } else if let Some(call) = &self.call {
+            Some(Node::Call(wire::Call {
+                name: call.name.clone(),
+                args: call.args.iter().map(Expression::to_wire).collect(),
+            }))
+        } else if let Some(ternary) = &self.ternary {
+            Some(Node::Ternary(Box::new(wire::Ternary {
+                cond: boxed_expression_to_wire(&ternary.cond),
+                then: boxed_expression_to_wire(&ternary.then),
+                otherwise: boxed_expression_to_wire(&ternary.otherwise),
+            })))
+        } else {
+            self.raw.clone().map(Node::Raw)
+        };
+        wire::Expression { node }
+    }
+    fn from_wire(message: wire::Expression) -> Self {
+        use wire::expression::Node;
+        let mut expression = Expression::default();
+        match message.node {
+            Some(Node::Literal(literal)) => {
+                expression.literal = Some(PrefixedValue::from_wire(literal));
+            }
+            Some(Node::Reference(reference)) => expression.reference = Some(reference),
+            Some(Node::Unary(unary)) => {
+                expression.unary = Some(UnaryOp {
+                    op: operator_from(unary.op),
+                    operand: boxed_expression_from_wire(unary.operand),
+                });
+            }
+            Some(Node::Binary(binary)) => {
+                expression.binary = Some(BinaryOp {
+                    op: operator_from(binary.op),
+                    lhs: boxed_expression_from_wire(binary.lhs),
+                    rhs: boxed_expression_from_wire(binary.rhs),
+                });
+            }
+            Some(Node::Call(call)) => {
+                expression.call = Some(Call {
+                    name: call.name,
+                    args: call.args.into_iter().map(Expression::from_wire).collect(),
+                });
+            }
+            Some(Node::Ternary(ternary)) => {
+                expression.ternary = Some(Ternary {
+                    cond: boxed_expression_from_wire(ternary.cond),
+                    then: boxed_expression_from_wire(ternary.then),
+                    otherwise: boxed_expression_from_wire(ternary.otherwise),
+                });
+            }
+            Some(Node::Raw(raw)) => expression.raw = Some(raw),
+            None => {}
+        }
+        expression
     }
 }
 
@@ -223,6 +348,25 @@ impl Directive {
             kind: dkind_from(p.kind),
             name: p.name,
             value: p.value,
+        }
+    }
+}
+
+impl Macro {
+    fn to_wire(&self) -> wire::Macro {
+        wire::Macro {
+            name: self.name.clone(),
+            language: self.language.clone(),
+            body: self.body.clone(),
+            properties: props_to(&self.properties),
+        }
+    }
+    fn from_wire(message: wire::Macro) -> Self {
+        Macro {
+            name: message.name,
+            language: message.language,
+            body: message.body,
+            properties: message.properties.into_iter().collect(),
         }
     }
 }
@@ -374,6 +518,7 @@ impl Module {
             buses: self.buses.iter().map(Bus::to_wire).collect(),
             properties: props_to(&self.properties),
             directives: self.directives.iter().map(Directive::to_wire).collect(),
+            macros: self.macros.iter().map(Macro::to_wire).collect(),
         }
     }
     fn from_wire(p: wire::Module) -> Self {
@@ -400,6 +545,7 @@ impl Module {
             buses: p.buses.into_iter().map(Bus::from_wire).collect(),
             properties: p.properties.into_iter().collect(),
             directives: p.directives.into_iter().map(Directive::from_wire).collect(),
+            macros: p.macros.into_iter().map(Macro::from_wire).collect(),
         }
     }
 }
@@ -514,6 +660,62 @@ impl InitialCondition {
     }
 }
 
+impl Waveform {
+    fn to_wire(&self) -> wire::Waveform {
+        let mut args = std::collections::HashMap::new();
+        for (name, value) in &self.args {
+            args.insert(name.clone(), value.to_wire());
+        }
+        wire::Waveform {
+            kind: self.kind as i32,
+            args,
+            points: self.points.iter().map(ParameterValue::to_wire).collect(),
+            file: self
+                .file
+                .as_deref()
+                .and_then(stored_file)
+                .unwrap_or_default(),
+        }
+    }
+    fn from_wire(message: wire::Waveform) -> Self {
+        let mut args = IndexMap::new();
+        for (name, value) in message.args {
+            args.insert(name, ParameterValue::from_wire(value));
+        }
+        Waveform {
+            kind: waveform_kind_from(message.kind),
+            args,
+            points: message
+                .points
+                .into_iter()
+                .map(ParameterValue::from_wire)
+                .collect(),
+            file: stored_file(&message.file),
+        }
+    }
+}
+
+impl Stimulus {
+    fn to_wire(&self) -> wire::Stimulus {
+        wire::Stimulus {
+            name: self.name.clone(),
+            dc: self.dc.as_ref().map(ParameterValue::to_wire),
+            ac_magnitude: self.ac_magnitude.as_ref().map(ParameterValue::to_wire),
+            ac_phase: self.ac_phase.as_ref().map(ParameterValue::to_wire),
+            waveform: self.waveform.as_ref().map(Waveform::to_wire),
+        }
+    }
+    fn from_wire(message: wire::Stimulus) -> Self {
+        Stimulus {
+            name: message.name,
+            dc: message.dc.map(ParameterValue::from_wire),
+            ac_magnitude: message.ac_magnitude.map(ParameterValue::from_wire),
+            ac_phase: message.ac_phase.map(ParameterValue::from_wire),
+            waveform: message.waveform.map(Waveform::from_wire),
+        }
+    }
+}
+
 impl Simulation {
     fn to_wire(&self) -> wire::Simulation {
         wire::Simulation {
@@ -530,6 +732,7 @@ impl Simulation {
                 .map(InitialCondition::to_wire),
             node_sets: self.node_sets.as_ref().map(InitialCondition::to_wire),
             temperatures: self.temperatures.clone(),
+            stimuli: self.stimuli.iter().map(Stimulus::to_wire).collect(),
             options: props_to(&self.options),
         }
     }
@@ -549,6 +752,7 @@ impl Simulation {
             initial_conditions: p.initial_conditions.map(InitialCondition::from_wire),
             node_sets: p.node_sets.map(InitialCondition::from_wire),
             temperatures: p.temperatures,
+            stimuli: p.stimuli.into_iter().map(Stimulus::from_wire).collect(),
             options: p.options.into_iter().collect(),
         }
     }
@@ -573,6 +777,7 @@ impl Circuit {
                 .iter()
                 .map(|(k, v)| (k.clone(), v.to_wire()))
                 .collect(),
+            macros: self.macros.iter().map(Macro::to_wire).collect(),
         }
     }
     fn from_wire(p: wire::Circuit) -> Self {
@@ -593,6 +798,7 @@ impl Circuit {
                 .into_iter()
                 .map(|(k, v)| (k, ExternalLibrary::from_wire(v)))
                 .collect(),
+            macros: p.macros.into_iter().map(Macro::from_wire).collect(),
         }
     }
 

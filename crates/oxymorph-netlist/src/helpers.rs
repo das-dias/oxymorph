@@ -124,7 +124,7 @@ pub fn parse_si_number(token: &str) -> Result<PrefixedValue, String> {
 pub fn parse_parameter_number(token: &str) -> Result<ParameterValue, String> {
     Ok(ParameterValue {
         prefixed_value: Some(parse_si_number(token)?),
-        model_ref: None,
+        ..Default::default()
     })
 }
 

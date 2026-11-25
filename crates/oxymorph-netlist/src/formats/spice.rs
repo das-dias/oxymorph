@@ -694,7 +694,7 @@ impl SpiceTransformer {
                         name: "value".to_string(),
                         default_value: Some(ParameterValue {
                             prefixed_value: Some(value.clone()),
-                            model_ref: None,
+                            ..Default::default()
                         }),
                         ..Default::default()
                     });

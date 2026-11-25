@@ -47,6 +47,10 @@ SPICE-family / Verilog-AMS netlist parsing through a shared Protocol Buffers IR.
   types added by the kfnetlist port, the kfnetlist Pydantic models at `e596bb5`
   are the normative spec (read, not executed;
   [`decisions/0011`](decisions/0011-extend-beyond-upstream-morphnet.md)).
+- **Protos live in `crates/oxymorph-schema/proto/`**: kfnetlist's, with names
+  mapped back to oxymorph's and field numbers unchanged. `vendor/morphnet/protos/`
+  stay the reference for the original corpus (whose oracle bytes must still
+  decode message-equal).
 - **Grammars are verbatim `.lark` files from kfnetlist `f020af6`** (upstream
   morphnet's until the port reaches it), embedded via `include_lark!`
   ([`decisions/0002`](decisions/0002-parser-engine.md)). Do not translate them to

@@ -1,12 +1,13 @@
 fn main() {
-    let protos = "../../vendor/morphnet/protos";
-    println!("cargo:rerun-if-changed={protos}/circuit.proto");
-    println!("cargo:rerun-if-changed={protos}/simulation.proto");
-    let inputs = [
-        format!("{protos}/circuit.proto"),
-        format!("{protos}/simulation.proto"),
-    ];
+    let protos = "proto";
+    let names = ["circuit", "simulation", "value"];
+    let mut inputs = Vec::new();
+    for name in names {
+        let input = format!("{protos}/{name}.proto");
+        println!("cargo:rerun-if-changed={input}");
+        inputs.push(input);
+    }
     prost_build::Config::new()
-        .compile_protos(&inputs, &[protos.to_string()])
+        .compile_protos(&inputs, &[protos])
         .expect("protobuf codegen");
 }
