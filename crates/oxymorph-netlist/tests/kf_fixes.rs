@@ -208,3 +208,32 @@ ends top
     }
     assert_eq!(pins, BTreeSet::from(["a", "b", "mid"]));
 }
+
+// from: kfnetlist f020af6 tests/morphnet/test_spice_parser.py::test_numeric_subckt_ports
+#[test]
+fn numeric_subckt_ports() {
+    let text = "\
+.subckt cpl 1 2 5
+R1 1 2 1k
+.ends cpl
+.subckt top a b
+X1 a b 0 cpl
+.ends top
+.end
+";
+    type Parser = fn(&str) -> Result<Circuit, Error>;
+    let parsers: [(&str, Parser); 3] = [
+        ("spice", parse_spice),
+        ("hspice", parse_hspice),
+        ("xyce", parse_xyce),
+    ];
+    for (dialect, parse) in parsers {
+        let circuit = parse(text).unwrap_or_else(|error| panic!("{dialect}: {error:?}"));
+        let port_names: Vec<&str> = module_named(&circuit, "cpl")
+            .ports
+            .iter()
+            .map(|port| port.name.as_str())
+            .collect();
+        assert_eq!(port_names, ["1", "2", "5"], "{dialect}");
+    }
+}

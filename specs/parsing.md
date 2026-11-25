@@ -25,6 +25,10 @@ delegates to the spice and spectre parsers (`preprocess_spectre_spice`). With th
 grammar's keyword boundaries are compiled as ASCII ones (`(?-u:\b)`); the grammar
 file itself stays verbatim.
 
+The grammars are verbatim from kfnetlist `f020af6` (SPICE, HSPICE and Xyce accept a numeric node name in a
+`.subckt` port list: `port_decl: IDENT | SI_NUMBER`); `grammars_match_kfnetlist`
+(`tests/grammar_provenance.rs`) pins each file's SHA-256 to that revision.
+
 ## R2. Preprocessing
 
 Per-format preprocessing runs before parsing and mirrors `*/preprocess.py`:

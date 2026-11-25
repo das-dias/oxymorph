@@ -56,3 +56,6 @@ indexmap.workspace = true
 # preserve_order: a .gsch is written back in its own key order; float_roundtrip: its
 # numbers are read exactly, as Python's json does
 serde_json = { workspace = true, features = ["preserve_order", "float_roundtrip"] }
+
+[dev-dependencies]
+sha2 = "0.10"
