@@ -6,9 +6,24 @@ use oxymorph_schema::*;
 use crate::ast::TreeTransform;
 use crate::engine::Engine;
 use crate::error::Error;
-use crate::expression::{format_expression, Dialect, Resolve};
+use crate::expression::{format_expression, parameter_value, Dialect, Resolve};
 use crate::helpers::*;
 use crate::preprocess::preprocess_vams;
+use crate::stimulus::{
+    add_stimulus, from_primitive, name_stimulus, primitive, stimulus_keys, stimulus_of,
+};
+
+/// The built-in device modules (`DEVICE_PREFIX_TO_CIRCUIT` values).
+const PRIMITIVES: [&str; 8] = [
+    "resistor",
+    "capacitor",
+    "inductor",
+    "diode",
+    "bjt",
+    "mosfet",
+    "vsource",
+    "isource",
+];
 
 const GRAMMAR: &str = include_str!("../../grammars/vams.lark");
 
@@ -131,11 +146,16 @@ fn dir_map(s: &str) -> PortDirection {
 
 pub struct VamsTransformer {
     analog_blocks: Vec<String>,
+    /// Stimuli of the source primitives, named and in build order.
+    stimuli: Vec<Stimulus>,
 }
 
 impl VamsTransformer {
     pub fn new(analog_blocks: Vec<String>) -> Self {
-        Self { analog_blocks }
+        Self {
+            analog_blocks,
+            stimuli: Vec::new(),
+        }
     }
 }
 
@@ -156,11 +176,22 @@ impl TreeTransform for VamsTransformer {
 
     fn rule(&mut self, name: &str, items: Vec<Item>) -> Item {
         match name {
+            // parity: kf-vams-sources (a Verilog-A number: `1M` is mega)
             "pvalue_number" => {
                 let v = tok(&items[0]).unwrap_or("");
-                Item::Pval(parse_parameter_number(v).unwrap_or_default())
+                let value = parse_verilog_number(v)
+                    .unwrap_or_else(|| parse_parameter_number(v).unwrap_or_default());
+                Item::Pval(value)
             }
-            "pvalue_ident" | "pvalue_string" => Item::Pval(ParameterValue::default()),
+            // parity: kf-vams-sources
+            "pvalue_ident" => Item::Pval(parameter_value(tok(&items[0]).unwrap_or(""))),
+            "pvalue_string" => Item::Pval(ParameterValue {
+                expression: Some(Expression {
+                    raw: Some(tok(&items[0]).unwrap_or("").to_string()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
             "param_assign" => {
                 let n = tok(&items[0]).unwrap_or("").to_string();
                 let v = match items.get(1) {
@@ -587,6 +618,25 @@ impl VamsTransformer {
                 }
             }
 
+            // parity: kf-vams-sources (an LRM Annex E source: vpulse, isine, ...)
+            if let Some(stimulus) = from_primitive(&inst.module_type, &inst.named_params, None) {
+                let keys = stimulus_keys(Some(&stimulus));
+                let device_params = params
+                    .into_iter()
+                    .filter(|parameter| !keys.contains(&parameter.name.as_str()))
+                    .collect();
+                let current = inst.module_type.to_lowercase().starts_with('i');
+                let mut reference = ModuleReference {
+                    name: inst.name.clone(),
+                    module_name: if current { "isource" } else { "vsource" }.to_string(),
+                    parameters: device_params,
+                    ..Default::default()
+                };
+                let named = name_stimulus(&module_name, &mut reference, stimulus);
+                self.stimuli.push(named);
+                module_references.push(reference);
+                continue;
+            }
             module_references.push(ModuleReference {
                 name: inst.name.clone(),
                 module_name: inst.module_type.clone(),
@@ -687,15 +737,48 @@ impl VamsTransformer {
             }
         }
 
-        let top_module = modules.last().map(|m| m.name.clone()).unwrap_or_default();
+        // parity: kf-vams-sources (`pch M1 (...)` with `paramset pch mosfet`: a mosfet)
+        let mut paramsets: IndexMap<&str, &str> = IndexMap::new();
+        for item in &items {
+            if let Item::Paramset(paramset) = item {
+                paramsets.insert(&paramset.name, &paramset.base_type);
+            }
+        }
+        for module in &mut modules {
+            for reference in &mut module.module_references {
+                if reference.properties.contains_key("stimulus") {
+                    continue;
+                }
+                let base = paramsets.get(reference.module_name.as_str());
+                if let Some(base) = base.filter(|base| PRIMITIVES.contains(base)) {
+                    let model_name =
+                        std::mem::replace(&mut reference.module_name, base.to_string());
+                    reference
+                        .properties
+                        .insert("model_name".to_string(), model_name);
+                }
+            }
+        }
 
-        Item::Circuit(Circuit {
+        // parity: kf-top-elements
+        let has_top = modules.iter().any(|module| module.name == "__top__");
+        let top_module = if has_top {
+            "__top__".to_string()
+        } else {
+            modules.last().map(|m| m.name.clone()).unwrap_or_default()
+        };
+
+        let mut circuit = Circuit {
             name: String::new(),
             top_module,
             modules,
             ext_modules: ext_modules.into_values().collect(),
             ..Default::default()
-        })
+        };
+        for stimulus in std::mem::take(&mut self.stimuli) {
+            add_stimulus(&mut circuit, stimulus);
+        }
+        Item::Circuit(circuit)
     }
 }
 
@@ -748,7 +831,8 @@ pub fn parse_vams(text: &str) -> Result<Circuit, Error> {
 
 fn format_param_value(pval: &ParameterValue, resolve: Option<Resolve>) -> String {
     if let Some(pv) = &pval.prefixed_value {
-        return format_si_value(pv);
+        // parity: kf-vams-sources (mega is `M`)
+        return format_verilog_value(pv);
     }
     match &pval.expression {
         // parity: kf-expressions
@@ -804,8 +888,14 @@ pub fn write_vams(circuit: &Circuit) -> String {
         }
     }
 
+    // parity: kf-vams-sources (LRM 7.5: the primitive a device model is of)
+    for (model, base) in paramsets(circuit) {
+        lines.push(format!("paramset {model} {base};"));
+        lines.push("endparamset".to_string());
+    }
+
     for module in &circuit.modules {
-        write_module(module, &ext_by_name, &mod_by_name, &mut lines);
+        write_module(module, circuit, &ext_by_name, &mod_by_name, &mut lines);
     }
 
     if lines.last().map(|s| !s.is_empty()).unwrap_or(false) {
@@ -814,8 +904,30 @@ pub fn write_vams(circuit: &Circuit) -> String {
     lines.join("\n")
 }
 
+/// `model -> primitive` of the device models instances are called by, so a reader
+/// knows `pch M1 (...)` is a `mosfet` (its pins, its kind).
+fn paramsets(circuit: &Circuit) -> IndexMap<&str, &str> {
+    let mut bases = IndexMap::new();
+    for module in &circuit.modules {
+        for reference in &module.module_references {
+            let Some(model) = reference.properties.get("model_name") else {
+                continue;
+            };
+            let defined = circuit.modules.iter().any(|defined| &defined.name == model);
+            if !model.is_empty() && !defined && PRIMITIVES.contains(&reference.module_name.as_str())
+            {
+                bases
+                    .entry(model.as_str())
+                    .or_insert(reference.module_name.as_str());
+            }
+        }
+    }
+    bases
+}
+
 fn write_module(
     module: &Module,
+    circuit: &Circuit,
     ext_by_name: &IndexMap<&str, &ExternalModule>,
     mod_by_name: &IndexMap<&str, &Module>,
     lines: &mut Vec<String>,
@@ -876,13 +988,32 @@ fn write_module(
         lines.push(format!("  {kw}{type_str} {} = {val};", param.name));
     }
 
-    if let Some(ground_net) = module.properties.get("ground_net") {
+    // parity: kf-vams-sources (the circuit's ground net, where this module uses it)
+    let circuit_ground = circuit.properties.get("ground_net").filter(|ground| {
+        !ground.is_empty()
+            && module
+                .connections
+                .iter()
+                .any(|connection| &connection.name == *ground)
+    });
+    let ground_net = module
+        .properties
+        .get("ground_net")
+        .filter(|ground| !ground.is_empty())
+        .or(circuit_ground);
+    if let Some(ground_net) = ground_net {
         lines.push(format!("  ground {ground_net};"));
     }
 
     let inst_nets = connections_to_instance_nets(&module.connections, "");
     for r in &module.module_references {
-        lines.push(write_instance(r, &inst_nets, ext_by_name, mod_by_name));
+        lines.push(write_instance(
+            r,
+            circuit,
+            &inst_nets,
+            ext_by_name,
+            mod_by_name,
+        ));
     }
 
     if let Some(analog_block) = module.properties.get("analog_block") {
@@ -894,22 +1025,39 @@ fn write_module(
 
 fn write_instance(
     r: &ModuleReference,
+    circuit: &Circuit,
     inst_nets: &IndexMap<(String, String), String>,
     ext_by_name: &IndexMap<&str, &ExternalModule>,
     mod_by_name: &IndexMap<&str, &Module>,
 ) -> String {
     let (shown, sources) = sim_params(r);
     let resolve = |name: &str| sources.resolve(name);
-    let params_str = if shown.is_empty() {
+    let mut parts: Vec<String> = Vec::new();
+    for parameter in shown {
+        if let Some(value) = &parameter.default_value {
+            let text = format_param_value(value, Some(&resolve));
+            parts.push(format!(".{}({text})", parameter.name));
+        }
+    }
+    // parity: kf-vams-sources (a `.model` name is the module, LRM E.2.2.1; a source an
+    // Annex E primitive)
+    let mut master = r
+        .properties
+        .get("model_name")
+        .filter(|model| !model.is_empty())
+        .unwrap_or(&r.module_name)
+        .clone();
+    if let Some(stimulus) = stimulus_of(circuit, r) {
+        let (primitive_master, stimulus_params) =
+            primitive(stimulus, r.module_name == "isource", Dialect::Vams);
+        master = primitive_master;
+        for (name, text) in stimulus_params {
+            parts.push(format!(".{name}({text})"));
+        }
+    }
+    let params_str = if parts.is_empty() {
         String::new()
     } else {
-        let mut parts: Vec<String> = Vec::new();
-        for parameter in shown {
-            if let Some(value) = &parameter.default_value {
-                let text = format_param_value(value, Some(&resolve));
-                parts.push(format!(".{}({text})", parameter.name));
-            }
-        }
         format!(" #({})", parts.join(", "))
     };
 
@@ -933,8 +1081,7 @@ fn write_instance(
         .collect();
 
     format!(
-        "  {}{params_str} {} ({});",
-        r.module_name,
+        "  {master}{params_str} {} ({});",
         r.name,
         port_parts.join(", ")
     )

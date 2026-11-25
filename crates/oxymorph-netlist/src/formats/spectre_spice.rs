@@ -5,12 +5,19 @@ use indexmap::IndexMap;
 use oxymorph_schema::*;
 
 use crate::error::Error;
+use crate::formats::parse_spice;
+use crate::formats::spectre::parse_spectre_section;
 use crate::formats::spice::write_spice;
-use crate::formats::{parse_spectre, parse_spice};
 use crate::preprocess::preprocess_spectre_spice;
 
 pub fn parse_spectre_spice(text: &str) -> Result<Circuit, Error> {
-    let sections = preprocess_spectre_spice(text);
+    parse_sections(text, "spice")
+}
+
+/// A file of `simulator lang=` sections that starts in `language`: each section is read
+/// by its own parser, and the top-level elements of every section are one deck.
+pub(crate) fn parse_sections(text: &str, language: &str) -> Result<Circuit, Error> {
+    let sections = preprocess_spectre_spice(text, language);
 
     let mut all_modules: Vec<Module> = Vec::new();
     let mut all_ext_modules: IndexMap<String, ExternalModule> = IndexMap::new();
@@ -21,6 +28,7 @@ pub fn parse_spectre_spice(text: &str) -> Result<Circuit, Error> {
     let mut all_temperatures: Vec<f64> = Vec::new();
     let mut ic_conditions: Properties = Properties::new();
     let mut ns_conditions: Properties = Properties::new();
+    let mut all_stimuli: Vec<Stimulus> = Vec::new();
 
     let mut section_of: IndexMap<String, usize> = IndexMap::new();
     for (index, section) in sections.iter().enumerate() {
@@ -28,7 +36,7 @@ pub fn parse_spectre_spice(text: &str) -> Result<Circuit, Error> {
             continue;
         }
         let circuit = if section.language == "spectre" {
-            parse_spectre(&section.text)?
+            parse_spectre_section(&section.text)?
         } else {
             parse_spice(&section.text)?
         };
@@ -36,7 +44,19 @@ pub fn parse_spectre_spice(text: &str) -> Result<Circuit, Error> {
         for module in &circuit.modules {
             section_of.insert(module.name.clone(), index);
         }
-        all_modules.extend(circuit.modules);
+        for module in circuit.modules {
+            // parity: kf-top-elements (one deck: the top-level elements of every section)
+            let existing_top = all_modules
+                .iter_mut()
+                .find(|existing| existing.name == module.name);
+            match existing_top {
+                Some(top) if module.name == "__top__" => {
+                    top.module_references.extend(module.module_references);
+                    top.connections.extend(module.connections);
+                }
+                _ => all_modules.push(module),
+            }
+        }
         for ext in circuit.ext_modules {
             all_ext_modules.insert(ext.name.clone(), ext);
         }
@@ -47,6 +67,7 @@ pub fn parse_spectre_spice(text: &str) -> Result<Circuit, Error> {
             all_output_requests.extend(sim.output_requests);
             all_measurements.extend(sim.measurements);
             all_temperatures.extend(sim.temperatures);
+            all_stimuli.extend(sim.stimuli);
             if let Some(ic) = sim.initial_conditions {
                 ic_conditions.extend(ic.conditions);
             }
@@ -57,17 +78,23 @@ pub fn parse_spectre_spice(text: &str) -> Result<Circuit, Error> {
     }
 
     resolve_cross_section_pins(&mut all_modules, &section_of);
-    let top_module = all_modules
-        .last()
-        .map(|m| m.name.clone())
-        .unwrap_or_default();
+    let has_top = all_modules.iter().any(|module| module.name == "__top__");
+    let top_module = if has_top {
+        "__top__".to_string()
+    } else {
+        all_modules
+            .last()
+            .map(|m| m.name.clone())
+            .unwrap_or_default()
+    };
 
     let has_sim = !all_analyses.is_empty()
         || !all_output_requests.is_empty()
         || !all_measurements.is_empty()
         || !ic_conditions.is_empty()
         || !ns_conditions.is_empty()
-        || !all_temperatures.is_empty();
+        || !all_temperatures.is_empty()
+        || !all_stimuli.is_empty();
 
     let simulation = if has_sim {
         Some(Simulation {
@@ -89,6 +116,7 @@ pub fn parse_spectre_spice(text: &str) -> Result<Circuit, Error> {
                 })
             },
             temperatures: all_temperatures,
+            stimuli: all_stimuli,
             ..Default::default()
         })
     } else {

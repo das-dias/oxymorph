@@ -228,6 +228,49 @@ pub fn parse_si_number(token: &str) -> Result<PrefixedValue, String> {
     }
 }
 
+// Verilog-A scale factors (LRM 2.6.2): case matters, `M` is mega and `m` milli.
+fn verilog_scale(suffix: &str) -> Siprefix {
+    match suffix {
+        "T" => Siprefix::Tera,
+        "G" => Siprefix::Giga,
+        "M" => Siprefix::Mega,
+        "K" | "k" => Siprefix::Kilo,
+        "m" => Siprefix::Milli,
+        "u" => Siprefix::Micro,
+        "n" => Siprefix::Nano,
+        "p" => Siprefix::Pico,
+        "f" => Siprefix::Femto,
+        "a" => Siprefix::Atto,
+        _ => Siprefix::Unspecified,
+    }
+}
+
+fn verilog_number_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"^([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)([TGMKkmunpfa])?$").unwrap()
+    })
+}
+
+/// A Verilog-A number (`1M` = 1e6, `1m` = 1e-3); None for anything else.
+pub fn parse_verilog_number(token: &str) -> Option<ParameterValue> {
+    let captures = verilog_number_re().captures(token)?;
+    let double_value: f64 = captures[1].parse().ok()?;
+    let prefix = captures.get(2).map_or(Siprefix::Unspecified, |suffix| {
+        verilog_scale(suffix.as_str())
+    });
+    Some(ParameterValue::prefixed(double_value, prefix))
+}
+
+/// `value` with a Verilog-A scale factor: mega is `M`, not SPICE's `meg`.
+pub fn format_verilog_value(value: &PrefixedValue) -> String {
+    let text = format_si_value(value);
+    match text.strip_suffix("meg") {
+        Some(mantissa) => format!("{mantissa}M"),
+        None => text,
+    }
+}
+
 pub fn parse_parameter_number(token: &str) -> Result<ParameterValue, String> {
     Ok(ParameterValue {
         prefixed_value: Some(parse_si_number(token)?),
@@ -339,10 +382,31 @@ impl NetMap {
     }
 }
 
+/// The node an unconnected pin is written on: its own, never one shared by all.
+pub fn open_node(instance_name: &str, pin_name: &str) -> String {
+    format!("nc_{instance_name}_{pin_name}")
+}
+
+/// For each net with N port references, N-1 connections from the first; a net with one
+/// is a source-only connection, except an [`open_node`] (an unconnected pin as a writer
+/// spells it), which is no net at all.
 pub fn net_map_to_connections(net_map: &NetMap) -> Vec<Connection> {
     let mut connections = Vec::new();
     for (net_name, refs) in net_map.iter() {
-        if refs.len() < 2 {
+        // parity: kf-one-pin-nets
+        if let [only] = refs.as_slice() {
+            // by instance: a parser that does not know the master's pins reads `p1`
+            if !net_name.starts_with(&open_node(&only.instance_name, "")) {
+                connections.push(Connection {
+                    name: net_name.to_string(),
+                    source: Some(only.clone()),
+                    domain: domain_of(&only.port_name),
+                    ..Default::default()
+                });
+            }
+            continue;
+        }
+        if refs.is_empty() {
             continue;
         }
         let source = refs[0].clone();

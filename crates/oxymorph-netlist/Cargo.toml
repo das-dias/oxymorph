@@ -30,6 +30,10 @@ required-features = ["spice", "hspice", "xyce", "spectre", "spectre_spice", "vam
 name = "kf_writers"
 required-features = ["spice", "hspice", "xyce", "spectre", "spectre_spice", "vams"]
 
+[[test]]
+name = "kf_stimuli"
+required-features = ["spice", "hspice", "xyce", "spectre", "spectre_spice", "vams"]
+
 [[example]]
 name = "dump_corpus"
 required-features = ["spice", "hspice", "xyce", "spectre", "spectre_spice", "vams"]

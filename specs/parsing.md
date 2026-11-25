@@ -16,7 +16,9 @@ engine configuration exactly:
 | `xyce` | `xyce.lark` | Earley, `ambiguity="resolve"` | auto/dynamic |
 
 `spectre_spice` has no grammar: it splits input on `simulator lang=` and
-delegates to the spice and spectre parsers (`preprocess_spectre_spice`).
+delegates to the spice and spectre parsers (`preprocess_spectre_spice`). With the
+`spectre_spice` feature built, `parse_spectre` does the same for a file with a
+`simulator lang=` line, starting in Spectre.
 
 ## R2. Preprocessing
 
@@ -108,3 +110,45 @@ Ported from kfnetlist 5924917, 9766e84, 1adb071, 5671e52, d94dc38:
   `properties["sim_skip"] == "1"` and params with `properties["role"] == "source"`,
   printing a reference to such a param as its value.
 - `write_dispatch` routes `hspice`, `xyce` and `spectre_spice` to their writers.
+
+## R8. Stimuli, PWL sources and open pins
+
+Ported from kfnetlist 75c630f, b1153f6, b4dc1ec, 30a1621, 6db1e11, 650763b,
+5559e43, 8f0a4b4, 7970b4f, b26cd6b, d5b82b2 (`decisions/0011`);
+`crates/oxymorph-netlist/src/stimulus.rs`:
+
+- Every V/I source is a `Stimulus` in `Simulation.stimuli`, named
+  `<module>/<instance>`; the source's `properties["stimulus"]` names it
+  (`stimulus_of`, `attach`). Waveform args use SPICE semantics with Spectre names
+  (`waveform_args`); writers walk them in that order, so args read back from
+  protobuf (no order) are written by position.
+- SPICE family: the tokens after a V/I source's nodes are its stimulus
+  (`DC d AC m p FUNC(args)`, a bare first value is the DC level). `PULSE`, `SIN`,
+  `EXP`, `SFFM` and `PWL` take positional args, also with a space before `(`;
+  `PWL FILE "path"`, `PWL FILE=path` and LTspice `PWL file=path` read a file. Any
+  other function (`AM(...)`) is `Error::Validation`. The writers print the same
+  form; a missing positional arg before a given one is `0`, and a reference is
+  wrapped (`{vdd}`).
+- Spectre: `dc`, `mag`, `phase`, `type` and the waveform's args (also Cadence's
+  `damp`, `td1`) of a `vsource`/`isource` are its stimulus; an unknown `type`
+  (`prbs`) and its params stay device params. `wave=[…]` (one line) holds PWL
+  points, `file="path"` a PWL file. A quoted string is kept as raw text. VACASK
+  writes InSpice's forms: quoted `type`, no zero `delay`/`theta`, no `rise <= 0`,
+  `td2` counted from the delay.
+- VAMS: an LRM Annex E primitive (`vpulse`, `isine`, `vexp`, …) is a
+  `vsource`/`isource` with its stimulus, and is written back as one (a DC/AC
+  source is a `vsine`). Numbers take Verilog-A scale factors (`1M` is mega, written
+  `M`); identifier params are references, strings raw text. A `paramset <model>
+  <primitive>` makes `<model>` instances that primitive with `model_name`; the
+  writer names a device by its `model_name`, declares the `paramset`s, and writes
+  the circuit's `ground_net` in a module that uses it.
+- A PWL file is stored POSIX (`oxymorph_schema::paths::posix_file`): `\` and `/`
+  separate, `.`/`..` resolve, and a drive, UNC share or `/` root is kept.
+- A bare word, `{…}` or `'…'` after an R/C/L's nodes is its `value` (an identifier
+  a reference) unless a `.model` of the deck has that name, a value precedes it, or
+  `k=v` params follow it; then it is the model name.
+- The deck's top-level elements (`__top__`) are the top module whenever they exist;
+  Spectre-SPICE merges the top-level elements of every section into one `__top__`.
+- A net with one pin is a source-only connection. Writers put a pin with no net on
+  its own node `nc_<instance>_<pin>` (SPICE: the instance name as written); a
+  parser drops a one-pin net named `nc_<instance>_…`.

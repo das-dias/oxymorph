@@ -10,6 +10,7 @@ pub mod expression;
 pub mod formats;
 pub mod helpers;
 pub mod preprocess;
+pub mod stimulus;
 
 pub use error::Error;
 pub use formats::*;

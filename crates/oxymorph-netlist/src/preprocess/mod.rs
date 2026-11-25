@@ -160,14 +160,17 @@ pub struct SpectreSpiceSection {
     pub text: String,
 }
 
-fn simulator_lang_re() -> &'static Regex {
+pub fn simulator_lang_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| Regex::new(r"(?i)^\s*simulator\s+lang\s*=\s*(\w+)").unwrap())
 }
 
-pub fn preprocess_spectre_spice(text: &str) -> Vec<SpectreSpiceSection> {
+/// Split a Spectre-SPICE file into sections by language mode. The file starts in
+/// `language` (`spice` for a Spectre-SPICE file, `spectre` for a Spectre one); a
+/// `simulator lang=spectre|spice` line switches the mode.
+pub fn preprocess_spectre_spice(text: &str, language: &str) -> Vec<SpectreSpiceSection> {
     let mut sections = Vec::new();
-    let mut current_lang = "spice".to_string();
+    let mut current_lang = language.to_string();
     let mut current_lines: Vec<String> = Vec::new();
     for line in text.lines() {
         if let Some(caps) = simulator_lang_re().captures(line) {

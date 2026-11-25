@@ -10,6 +10,9 @@ use crate::error::Error;
 use crate::expression::{parameter_value, value_text, Dialect};
 use crate::helpers::*;
 use crate::preprocess::preprocess_spectre;
+use crate::stimulus::{
+    add_stimulus, from_spectre, name_stimulus, spectre_keys, spectre_params, stimulus_of,
+};
 
 const GRAMMAR: &str = include_str!("../../grammars/spectre.lark");
 
@@ -138,6 +141,8 @@ const SPECTRE_ANALYSIS_TYPES: &[&str] = &[
 #[derive(Default)]
 pub struct SpectreTransformer {
     all_subckts: IndexMap<String, Module>,
+    /// Stimuli of the sources, named and in build order.
+    stimuli: Vec<Stimulus>,
 }
 
 impl TreeTransform for SpectreTransformer {
@@ -160,7 +165,14 @@ impl TreeTransform for SpectreTransformer {
             "net_ref" => Item::Str(tok(&items[0]).unwrap_or("").to_string()),
             // parity: kf-expressions (a number, a name or a bare expression)
             "pvalue_value" => Item::Pval(parameter_value(tok(&items[0]).unwrap_or(""))),
-            "pvalue_string" => Item::Pval(ParameterValue::default()),
+            // parity: kf-stimuli (a quoted string, `type="pulse"`, kept as written)
+            "pvalue_string" => Item::Pval(ParameterValue {
+                expression: Some(Expression {
+                    raw: Some(tok(&items[0]).unwrap_or("").to_string()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
             "param_assign" => {
                 let name = tok(&items[0]).unwrap_or("").to_string();
                 let value = match items.get(1) {
@@ -333,7 +345,7 @@ impl SpectreTransformer {
 
     #[allow(clippy::unnecessary_unwrap)]
     fn build_subckt(
-        &self,
+        &mut self,
         name: String,
         port_names: Vec<String>,
         subckt_params: IndexMap<String, ParameterValue>,
@@ -475,15 +487,23 @@ impl SpectreTransformer {
                     );
                 }
 
+                let mut given = inst.params.clone();
+                let mut stimulus = None;
+                if device_prefix == "V" || device_prefix == "I" {
+                    // parity: kf-stimuli
+                    stimulus = from_spectre(&given, Dialect::Spectre);
+                    for key in spectre_keys(stimulus.as_ref()) {
+                        given.shift_remove(key);
+                    }
+                }
                 let mut props = Properties::new();
                 if !inst.cell_name.is_empty() && inst.cell_name != module_name {
                     props.insert("model_name".to_string(), inst.cell_name.clone());
                 }
-                module_references.push(ModuleReference {
+                let mut reference = ModuleReference {
                     name: inst.name.clone(),
                     module_name,
-                    parameters: inst
-                        .params
+                    parameters: given
                         .iter()
                         .map(|(n, v)| Parameter {
                             name: n.clone(),
@@ -493,7 +513,12 @@ impl SpectreTransformer {
                         .collect(),
                     properties: props,
                     ..Default::default()
-                });
+                };
+                if let Some(stimulus) = stimulus {
+                    let named = name_stimulus(&name, &mut reference, stimulus);
+                    self.stimuli.push(named);
+                }
+                module_references.push(reference);
             }
         }
 
@@ -626,7 +651,12 @@ impl SpectreTransformer {
             }
         }
 
-        let top_module = modules.last().map(|m| m.name.clone()).unwrap_or_default();
+        // parity: kf-top-elements
+        let top_module = if top_instances.is_empty() {
+            modules.last().map(|m| m.name.clone()).unwrap_or_default()
+        } else {
+            "__top__".to_string()
+        };
 
         let simulation = if !analyses.is_empty() || !output_requests.is_empty() {
             Some(Simulation {
@@ -657,7 +687,7 @@ impl SpectreTransformer {
             None
         };
 
-        Item::Circuit(Circuit {
+        let mut circuit = Circuit {
             name: String::new(),
             top_module,
             modules,
@@ -665,11 +695,30 @@ impl SpectreTransformer {
             directives,
             simulation,
             ..Default::default()
-        })
+        };
+        for stimulus in std::mem::take(&mut self.stimuli) {
+            add_stimulus(&mut circuit, stimulus);
+        }
+        Item::Circuit(circuit)
     }
 }
 
+/// Spectre netlist text; `simulator lang=spice` sections (a SPICE subcircuit, inline
+/// model code) are read as SPICE when the `spectre_spice` feature is built.
 pub fn parse_spectre(text: &str) -> Result<Circuit, Error> {
+    #[cfg(feature = "spectre_spice")]
+    if text
+        .lines()
+        .any(|line| crate::preprocess::simulator_lang_re().is_match(line))
+    {
+        // parity: kf-top-elements
+        return crate::formats::spectre_spice::parse_sections(text, "spectre");
+    }
+    parse_spectre_section(text)
+}
+
+/// Spectre netlist text with no `simulator lang=` switch (one language section).
+pub(crate) fn parse_spectre_section(text: &str) -> Result<Circuit, Error> {
     let cleaned = preprocess_spectre(text);
     let tree = with_engine(|e| e.parse(&cleaned))?;
     let mut t = SpectreTransformer::default();
@@ -715,6 +764,8 @@ fn analysis_kind_to_spectre(kind: AnalysisKind) -> &'static str {
 struct SpectreStyle<'a> {
     vacask: bool,
     ground: &'a str,
+    /// The circuit being written: its simulation holds the sources' stimuli.
+    circuit: &'a Circuit,
 }
 
 impl SpectreStyle<'_> {
@@ -737,6 +788,7 @@ pub fn write_spectre(circuit: &Circuit) -> String {
             .get("ground_net")
             .map(String::as_str)
             .unwrap_or(""),
+        circuit,
     };
     if style.vacask && !style.ground.is_empty() {
         lines.push("ground 0".to_string());
@@ -878,16 +930,15 @@ fn write_instance(
         infer_port_order(r, inst_nets)
     };
 
-    let nets = port_order
-        .iter()
-        .map(|pn| {
-            inst_nets
-                .get(&(r.name.clone(), pn.clone()))
-                .cloned()
-                .unwrap_or_else(|| "?".to_string())
-        })
-        .collect::<Vec<_>>()
-        .join(" ");
+    let mut nets = Vec::new();
+    for pin in &port_order {
+        match inst_nets.get(&(r.name.clone(), pin.clone())) {
+            Some(net) if !net.is_empty() => nets.push(net.clone()),
+            // parity: kf-one-pin-nets
+            _ => nets.push(open_node(&r.name, pin)),
+        }
+    }
+    let nets = nets.join(" ");
 
     let cell_name = r
         .properties
@@ -911,6 +962,12 @@ fn write_instance(
             } else {
                 &param.name
             };
+            param_strs.push(format!("{name}={text}"));
+        }
+    }
+    if let Some(stimulus) = stimulus_of(style.circuit, r) {
+        // parity: kf-stimuli
+        for (name, text) in spectre_params(stimulus, style.dialect()) {
             param_strs.push(format!("{name}={text}"));
         }
     }

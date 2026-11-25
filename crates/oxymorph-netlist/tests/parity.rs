@@ -3,15 +3,19 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use oxymorph_netlist::helpers::{domain_of, net_domain};
-use oxymorph_schema::{Circuit, PortReference};
+use oxymorph_netlist::helpers::{domain_of, net_domain, open_node};
+use oxymorph_schema::{Circuit, Connection, Module, PortReference};
 
 type Transform = fn(&mut Circuit);
 
 /// Systematic divergences: an R4 id and the function that turns the oracle's IR into the
 /// IR we now produce. Applied to the expected IR of every case (corpus `json` and the
 /// decoded oracle protobuf). Case-specific divergences are overrides instead.
-const TRANSFORMS: &[(&str, Transform)] = &[("kf-signal-domains", apply_signal_domains)];
+const TRANSFORMS: &[(&str, Transform)] = &[
+    ("kf-signal-domains", apply_signal_domains),
+    ("kf-one-pin-nets", apply_one_pin_port_nets),
+    ("kf-top-elements", apply_top_elements),
+];
 
 /// kf-signal-domains: ports take `domain_of` their name; a connection takes its net's domain.
 fn apply_signal_domains(circuit: &mut Circuit) {
@@ -37,6 +41,55 @@ fn apply_signal_domains(circuit: &mut Circuit) {
         for connection in &mut module.connections {
             connection.domain = net_domain(&pins_by_net[&connection.name]);
         }
+    }
+}
+
+/// kf-one-pin-nets: a port no element uses is a one-pin net, a source-only connection
+/// at its place in net order (the ports come first, in port order). One-pin nets of
+/// instance pins are not in the oracle IR: those cases are overrides.
+fn apply_one_pin_port_nets(circuit: &mut Circuit) {
+    for module in &mut circuit.modules {
+        module.connections = connections_with_port_nets(module);
+    }
+}
+
+fn connections_with_port_nets(module: &Module) -> Vec<Connection> {
+    let mut remaining = module.connections.iter().peekable();
+    let mut connections = Vec::new();
+    for port in &module.ports {
+        let used = module
+            .connections
+            .iter()
+            .any(|connection| connection.name == port.name);
+        if used {
+            // a port's net leads the connections, in port order
+            while let Some(connection) = remaining.next_if(|next| next.name == port.name) {
+                connections.push(connection.clone());
+            }
+        } else if !port.name.starts_with(&open_node("", "")) {
+            connections.push(Connection {
+                name: port.name.clone(),
+                source: Some(PortReference {
+                    instance_name: String::new(),
+                    port_name: port.name.clone(),
+                }),
+                domain: domain_of(&port.name),
+                ..Default::default()
+            });
+        }
+    }
+    connections.extend(remaining.cloned());
+    connections
+}
+
+/// kf-top-elements: the deck's own elements (`__top__`) are the top module.
+fn apply_top_elements(circuit: &mut Circuit) {
+    if circuit
+        .modules
+        .iter()
+        .any(|module| module.name == "__top__")
+    {
+        circuit.top_module = "__top__".to_string();
     }
 }
 
@@ -261,6 +314,21 @@ fn signal_domain_transform_follows_the_nets() {
 }
 
 #[test]
+fn one_pin_port_net_transform_keeps_net_order() {
+    let circuit = oxymorph_netlist::parse_spice(
+        ".subckt top a unused b\nR1 a b 1k\nR2 b c 1k\nR3 c a 1k\n.ends top\n",
+    )
+    .unwrap();
+    let mut oracle = circuit.clone();
+    oracle.modules[0]
+        .connections
+        .retain(|connection| connection.target.is_some());
+    assert_ne!(oracle, circuit);
+    apply_one_pin_port_nets(&mut oracle);
+    assert_eq!(oracle, circuit);
+}
+
+#[test]
 fn parse_and_write_match_the_oracle() {
     let cases = load_cases();
     let overrides = load_overrides();
@@ -324,8 +392,10 @@ fn parse_and_write_match_the_oracle() {
     }
 
     assert!(parse_checked > 300, "corpus too small: {parse_checked}");
+    // A `json` override skips the oracle protobuf of its case: kf-one-pin-nets keeps the
+    // one-pin nets of instance pins, which the oracle IR has no name for.
     assert!(
-        proto_checked > 300,
+        proto_checked > 250,
         "protobuf corpus too small: {proto_checked}"
     );
     if !failures.is_empty() {

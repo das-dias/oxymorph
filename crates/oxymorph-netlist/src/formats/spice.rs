@@ -2,7 +2,10 @@
 //! `spice/writer.py`. `hspice`, `xyce` and `spectre_spice` reuse this base
 //! with a [`Mode`] switch (the upstream subclasses are thin overrides).
 
+use std::collections::HashSet;
+
 use indexmap::IndexMap;
+use lark_rs::tree::{Child, ParseTree};
 use oxymorph_schema::*;
 
 use crate::ast::TreeTransform;
@@ -11,6 +14,7 @@ use crate::error::Error;
 use crate::expression::{expression_or_raw, parameter_value, value_text, Dialect, Resolve};
 use crate::helpers::*;
 use crate::preprocess::{preprocess_hspice, preprocess_spice, preprocess_xyce};
+use crate::stimulus::{self, add_stimulus, name_stimulus, spice_text, stimulus_of};
 
 const GRAMMAR_SPICE: &str = include_str!("../../grammars/spice.lark");
 const GRAMMAR_HSPICE: &str = include_str!("../../grammars/hspice.lark");
@@ -57,9 +61,11 @@ pub struct InstanceData {
     pub name: String,
     pub net_names: Vec<String>,
     pub model_or_subckt: String,
-    pub value: Option<PrefixedValue>,
+    pub value: Option<ParameterValue>,
     pub params: IndexMap<String, ParameterValue>,
     pub device_prefix: String,
+    /// A V/I value read as a stimulus (`DC 1 AC 1 PULSE(...)`).
+    pub stimulus: Option<Stimulus>,
 }
 
 #[derive(Clone, Debug)]
@@ -175,6 +181,12 @@ fn tok(it: &Item) -> Option<&str> {
 pub struct SpiceTransformer {
     pub mode: Mode,
     all_subckts: IndexMap<String, Module>,
+    /// Every `.model` name of the deck, lowercase.
+    models: HashSet<String>,
+    /// Stimuli of the sources, named and in build order.
+    stimuli: Vec<Stimulus>,
+    /// The first source value that is not a stimulus.
+    error: Option<Error>,
 }
 
 impl SpiceTransformer {
@@ -182,8 +194,33 @@ impl SpiceTransformer {
         Self {
             mode,
             all_subckts: IndexMap::new(),
+            models: HashSet::new(),
+            stimuli: Vec::new(),
+            error: None,
         }
     }
+}
+
+/// Every `.model` name in `tree`, lowercase (read before any instance is).
+fn model_names(tree: &ParseTree) -> HashSet<String> {
+    let mut names = HashSet::new();
+    let ParseTree::Tree(root) = tree else {
+        return names;
+    };
+    let mut pending = vec![root];
+    while let Some(node) = pending.pop() {
+        if node.data == "model_stmt" {
+            if let Some(Child::Token(name)) = node.children.get(1) {
+                names.insert(name.value.to_lowercase());
+            }
+        }
+        for child in &node.children {
+            if let Child::Tree(subtree) = child {
+                pending.push(subtree);
+            }
+        }
+    }
+    names
 }
 
 impl TreeTransform for SpiceTransformer {
@@ -203,7 +240,7 @@ impl TreeTransform for SpiceTransformer {
 
     fn rule(&mut self, name: &str, items: Vec<Item>) -> Item {
         match name {
-            "token_number" | "token_ident" | "token_output_var" | "token_expr" => {
+            "token_number" | "token_ident" | "token_output_var" | "token_expr" | "token_func" => {
                 items.into_iter().next().unwrap_or(Item::None)
             }
             "pvalue_number" => {
@@ -485,6 +522,7 @@ impl SpiceTransformer {
                 value: None,
                 params,
                 device_prefix,
+                stimulus: None,
             });
         }
 
@@ -496,13 +534,39 @@ impl SpiceTransformer {
             } else {
                 &[]
             };
+            if device_prefix == "V" || device_prefix == "I" {
+                let source = remaining.join(" ");
+                let stimulus = if source.is_empty() {
+                    None
+                } else {
+                    self.read_source(&source)
+                };
+                return Item::Instance(InstanceData {
+                    name: inst_name,
+                    net_names,
+                    model_or_subckt: String::new(),
+                    value: None,
+                    params,
+                    device_prefix,
+                    stimulus,
+                });
+            }
             let mut value = None;
             let mut model_name = String::new();
-            for t in remaining {
-                if is_si_number(t) {
-                    value = parse_si_number(t).ok();
+            for token in remaining {
+                if is_si_number(token) {
+                    value = parse_parameter_number(token).ok();
+                } else if token.starts_with(['{', '\'']) {
+                    value = Some(expression_value(token));
+                } else if matches!(device_prefix.as_str(), "R" | "C" | "L")
+                    && !self.models.contains(&token.to_lowercase())
+                    && remaining.len() == 1
+                    && params.is_empty()
+                {
+                    // parity: kf-bare-values (`R1 a b rload`: a param; `R1 a b 1k rpoly`: a model)
+                    value = Some(parameter_value(token));
                 } else {
-                    model_name = t.clone();
+                    model_name = token.clone();
                 }
             }
             return Item::Instance(InstanceData {
@@ -512,6 +576,7 @@ impl SpiceTransformer {
                 value,
                 params,
                 device_prefix,
+                stimulus: None,
             });
         }
 
@@ -528,7 +593,19 @@ impl SpiceTransformer {
             value: None,
             params,
             device_prefix,
+            stimulus: None,
         })
+    }
+
+    /// The stimulus of a V/I value; the first unsupported one is the parse's error.
+    fn read_source(&mut self, source: &str) -> Option<Stimulus> {
+        match stimulus::parse_spice(source) {
+            Ok(stimulus) => Some(stimulus),
+            Err(error) => {
+                self.error.get_or_insert(error);
+                None
+            }
+        }
     }
 
     fn model_stmt(&mut self, items: Vec<Item>) -> Item {
@@ -571,7 +648,7 @@ impl SpiceTransformer {
     }
 
     fn build_subckt(
-        &self,
+        &mut self,
         name: String,
         port_names: Vec<String>,
         subckt_params: IndexMap<String, ParameterValue>,
@@ -718,10 +795,7 @@ impl SpiceTransformer {
                 if let Some(value) = &inst.value {
                     params.push(Parameter {
                         name: "value".to_string(),
-                        default_value: Some(ParameterValue {
-                            prefixed_value: Some(value.clone()),
-                            ..Default::default()
-                        }),
+                        default_value: Some(value.clone()),
                         ..Default::default()
                     });
                 }
@@ -738,13 +812,19 @@ impl SpiceTransformer {
                     props.insert("model_name".to_string(), inst.model_or_subckt.clone());
                 }
 
-                module_references.push(ModuleReference {
+                let mut reference = ModuleReference {
                     name: inst.name.clone(),
                     module_name,
                     parameters: params,
                     properties: props,
                     ..Default::default()
-                });
+                };
+                if let Some(stimulus) = &inst.stimulus {
+                    // parity: kf-stimuli
+                    let named = name_stimulus(&name, &mut reference, stimulus.clone());
+                    self.stimuli.push(named);
+                }
+                module_references.push(reference);
             } else {
                 for (i, net_name) in inst.net_names.iter().enumerate() {
                     net_map.add(net_name, &inst.name, &format!("p{i}"));
@@ -942,7 +1022,13 @@ impl SpiceTransformer {
             }
         }
 
-        let top_module = modules.last().map(|m| m.name.clone()).unwrap_or_default();
+        // parity: kf-top-elements (the deck's own elements are the top; else the last
+        // subcircuit, by convention)
+        let top_module = if top_instances.is_empty() {
+            modules.last().map(|m| m.name.clone()).unwrap_or_default()
+        } else {
+            "__top__".to_string()
+        };
 
         for p in &circuit_params {
             let val = match &p.default_value {
@@ -1007,7 +1093,7 @@ impl SpiceTransformer {
             None
         };
 
-        Item::Circuit(Circuit {
+        let mut circuit = Circuit {
             name: String::new(),
             top_module,
             modules,
@@ -1015,7 +1101,11 @@ impl SpiceTransformer {
             directives,
             simulation,
             ..Default::default()
-        })
+        };
+        for stimulus in std::mem::take(&mut self.stimuli) {
+            add_stimulus(&mut circuit, stimulus);
+        }
+        Item::Circuit(circuit)
     }
 }
 
@@ -1031,7 +1121,12 @@ fn parse_with(text: &str, mode: Mode) -> Result<Circuit, Error> {
     };
     let tree = with_engine(mode, |e| e.parse(&cleaned))?;
     let mut t = SpiceTransformer::new(mode);
-    match t.transform(&tree) {
+    t.models = model_names(&tree);
+    let item = t.transform(&tree);
+    if let Some(error) = t.error {
+        return Err(error);
+    }
+    match item {
         Item::Circuit(c) => Ok(c),
         _ => Err(Error::Validation(
             "spice transform did not produce a circuit".into(),
@@ -1102,6 +1197,8 @@ struct SpiceStyle<'a> {
     dialect: Dialect,
     params_keyword: &'static str,
     ground: &'a str,
+    /// The circuit being written: its simulation holds the sources' stimuli.
+    circuit: &'a Circuit,
 }
 
 pub fn write_spice(circuit: &Circuit) -> String {
@@ -1123,6 +1220,7 @@ pub(crate) fn write_spice_dialect(
             .get("ground_net")
             .map(String::as_str)
             .unwrap_or(""),
+        circuit,
     };
     let mut lines: Vec<String> = Vec::new();
 
@@ -1275,21 +1373,23 @@ fn out_name(reference: &ModuleReference, lookups: &Lookups) -> String {
     reference.name.clone()
 }
 
+/// The nets of `reference`'s pins; an unconnected pin is on its own node, named after
+/// the instance as written (`out_name`).
 fn nets_text(
     reference: &ModuleReference,
+    out_name: &str,
     port_order: &[String],
     inst_nets: &IndexMap<(String, String), String>,
 ) -> String {
-    port_order
-        .iter()
-        .map(|pn| {
-            inst_nets
-                .get(&(reference.name.clone(), pn.clone()))
-                .cloned()
-                .unwrap_or_else(|| "?".to_string())
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
+    let mut nets = Vec::new();
+    for pin in port_order {
+        match inst_nets.get(&(reference.name.clone(), pin.clone())) {
+            Some(net) if !net.is_empty() => nets.push(net.clone()),
+            // parity: kf-one-pin-nets
+            _ => nets.push(open_node(out_name, pin)),
+        }
+    }
+    nets.join(" ")
 }
 
 fn write_instance(
@@ -1314,7 +1414,9 @@ fn write_instance(
                 .map(|pin| pin.to_string())
                 .collect(),
         };
-        let nets = nets_text(r, &port_order, inst_nets);
+        // parity: kf-spice-writer-dialects (device letter prepended when missing)
+        let out_name = out_name(r, lookups);
+        let nets = nets_text(r, &out_name, &port_order, inst_nets);
 
         let model_name = r.properties.get("model_name").cloned().unwrap_or_default();
         let mut value_str = String::new();
@@ -1332,8 +1434,11 @@ fn write_instance(
             }
         }
 
-        // parity: kf-spice-writer-dialects (device letter prepended when missing)
-        let mut parts = vec![out_name(r, lookups), nets];
+        if let Some(stimulus) = stimulus_of(style.circuit, r) {
+            // parity: kf-stimuli
+            value_str = spice_text(stimulus, style.dialect);
+        }
+        let mut parts = vec![out_name, nets];
         if !model_name.is_empty() {
             parts.push(model_name);
         }
@@ -1352,7 +1457,9 @@ fn write_instance(
     } else {
         infer_port_order(r, inst_nets)
     };
-    let nets = nets_text(r, &port_order, inst_nets);
+    // parity: kf-spice-writer-dialects (`X` prepended to a defined subckt's instance)
+    let out_name = out_name(r, lookups);
+    let nets = nets_text(r, &out_name, &port_order, inst_nets);
 
     let mut params_parts = Vec::new();
     for param in params {
@@ -1360,8 +1467,6 @@ fn write_instance(
             params_parts.push(format!("{}={text}", param.name));
         }
     }
-    // parity: kf-spice-writer-dialects (`X` prepended to a defined subckt's instance)
-    let out_name = out_name(r, lookups);
     let is_subckt_call = out_name.starts_with(['X', 'x']);
     let mut parts = vec![out_name, nets, subckt_name];
     if !params_parts.is_empty() && !style.params_keyword.is_empty() && is_subckt_call {

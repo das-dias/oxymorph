@@ -18,7 +18,9 @@ use regex::{Captures, Regex};
 
 use crate::engine::Engine;
 use crate::error::Error;
-use crate::helpers::{format_si_value, is_si_number, parse_parameter_number, parse_si_number};
+use crate::helpers::{
+    format_si_value, format_verilog_value, is_si_number, parse_parameter_number, parse_si_number,
+};
 
 const GRAMMAR: &str = include_str!("../grammars/expression.lark");
 
@@ -54,7 +56,7 @@ const DIALECT_NAMES: [(&str, Dialect); 7] = [
 
 impl Dialect {
     /// `(open, close)` around a compound expression.
-    fn wrapping(self) -> (&'static str, &'static str) {
+    pub fn wrapping(self) -> (&'static str, &'static str) {
         match self {
             Dialect::Ngspice | Dialect::Xyce => ("{", "}"),
             Dialect::Hspice => ("'", "'"),
@@ -306,6 +308,9 @@ pub fn expression_or_raw(text: &str) -> Expression {
 /// `value` as the text of a `k=v` directive in `dialect`; "" when empty.
 pub fn value_text(value: &ParameterValue, dialect: Dialect) -> String {
     if let Some(prefixed_value) = &value.prefixed_value {
+        if dialect == Dialect::Vams {
+            return number(prefixed_value, dialect);
+        }
         return format_si_value(prefixed_value);
     }
     if let Some(expression) = &value.expression {
@@ -345,6 +350,11 @@ fn operator_text(op: Operator) -> (&'static str, i32) {
         Operator::Not => ("!", UNARY),
         Operator::Unspecified => ("?", RAW),
     }
+}
+
+/// Plain value of a prefixed number (`2.2` MICRO is `2.2e-06`).
+pub fn to_float(value: &PrefixedValue) -> f64 {
+    value.double_value * 10f64.powi(si_exponent(value.prefix))
 }
 
 fn si_exponent(prefix: Siprefix) -> i32 {
@@ -426,10 +436,13 @@ fn twelve_significant_digits(value: f64) -> String {
 
 /// nyancad's spelling: SI suffix kept, else the shortest repr (`1e-6`, `2`).
 fn number(value: &PrefixedValue, dialect: Dialect) -> String {
+    if value.prefix != Siprefix::Unspecified && dialect == Dialect::Vams {
+        return format_verilog_value(value); // `M`, not `meg`
+    }
     if value.prefix != Siprefix::Unspecified && dialect != Dialect::SystemVerilog {
         return format_si_value(value); // SystemVerilog has no SI suffixes
     }
-    let plain = value.double_value * 10f64.powi(si_exponent(value.prefix));
+    let plain = to_float(value);
     if value.prefix == Siprefix::Unspecified {
         shortest(plain)
     } else {
