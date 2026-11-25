@@ -59,9 +59,12 @@ SPICE-family / Verilog-AMS netlist parsing through a shared Protocol Buffers IR.
   leak past `oxymorph-netlist`; map `String` errors to our structured error type.
 - **Core tests need no Python.** The golden corpus is committed; the
   differential harness is a separate, non-blocking job.
-- **Bindings are thin.** `oxymorph-python` exposes the whole functionality but no
-  logic; the Python module is named `oxymorph` and is not API-compatible with
-  `morphnet`.
+- **The Rust binding layer is thin.** `oxymorph-python`'s native module
+  (`oxymorph._oxymorph`) has no IR logic. It converts JSON to and from the IR,
+  and delegates. The Python package `oxymorph` holds the mutable object model:
+  dataclasses and `IntEnum`s
+  ([`decisions/0012`](decisions/0012-mutable-python-object-model.md)). The package
+  is not API-compatible with `morphnet`. Its tests run with `just test-python`.
 
 ## Committing and pushing
 
