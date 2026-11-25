@@ -74,6 +74,11 @@ Formats: `spice`, `hspice`, `xyce`, `spectre`, `spectre-spice`, `vams`
     `test_*_roundtrip.py`, `test_*_simulation.py`, `test_value_utils.py`,
     `test_circuit_models.py` (extracted by AST walk).
   - `examples/inverter.py`, `examples/mzi.py` — builder-API scripts.
+  - kfnetlist ports (`decisions/0011`) — the second oracle: tests and fixtures
+    ported from `kfnetlist.morphnet` (kfnetlist `e596bb5` plus `f020af6`) pin the
+    features added beyond the vendored morphnet. Ported fixtures live under
+    `crates/oxymorph-netlist/tests/data/kf/**`, with names mapped to oxymorph's per
+    `decisions/0011` (YAML/JSON keys only; netlist text is copied byte-for-byte).
   - `tests/corpus/overrides.json` — replaces the expected `json` / `writes[fmt]`
     of named original-corpus cases that a ported fix changes; every entry names
     an R4 row.
@@ -106,7 +111,10 @@ Policy: reproduce upstream behavior exactly, including bugs
 (`decisions/0004`). The exception is a ported kfnetlist fix that changes an
 original-corpus expectation (`decisions/0011`): it is a `diverged` row, its
 cases are listed in `tests/corpus/overrides.json`, and the code carrying it is
-marked `// parity: <id>`. Such ids are `kf-<short-slug>`.
+marked `// parity: <id>`. Such ids are `kf-<short-slug>`. An override's `json` and `writes[fmt]` replace the
+corpus values; when `json` is overridden the oracle protobuf (which encodes the old
+IR) is not compared for that case, while the protobuf round-trip of the parsed IR
+still is.
 `overrides_reference_r4_rows_and_name_existing_cases` fails if an override names
 an id that is not in this table or a case that is not in the corpus.
 

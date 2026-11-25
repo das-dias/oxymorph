@@ -95,6 +95,52 @@ fn check_overrides(
     problems
 }
 
+struct Expected<'a> {
+    json: &'a serde_json::Value,
+    /// The oracle protobuf encodes the pre-override IR, so it is only compared when `json` is not overridden.
+    compare_oracle_proto: bool,
+    writes: Vec<(&'a str, &'a str)>,
+}
+
+fn expected_for<'a>(case: &'a serde_json::Value, over: &'a serde_json::Value) -> Expected<'a> {
+    let writes = case["writes"].as_object().into_iter().flatten();
+    Expected {
+        json: over.get("json").unwrap_or(&case["json"]),
+        compare_oracle_proto: over.get("json").is_none(),
+        writes: writes
+            .map(|(format, text)| {
+                (
+                    format.as_str(),
+                    over["writes"].get(format).unwrap_or(text).as_str().unwrap(),
+                )
+            })
+            .collect(),
+    }
+}
+
+#[test]
+fn expected_values_apply_overrides() {
+    let case =
+        serde_json::json!({"json": {"a": 1}, "writes": {"spice": "old s", "spectre": "old x"}});
+
+    let none = serde_json::json!(null);
+    let plain = expected_for(&case, &none);
+    assert_eq!(plain.json, &serde_json::json!({"a": 1}));
+    assert!(plain.compare_oracle_proto);
+    assert_eq!(plain.writes, [("spectre", "old x"), ("spice", "old s")]);
+
+    let write_only = serde_json::json!({"r4": "kf-x", "writes": {"spice": "new s"}});
+    let expected = expected_for(&case, &write_only);
+    assert_eq!(expected.writes, [("spectre", "old x"), ("spice", "new s")]);
+    assert!(expected.compare_oracle_proto);
+
+    let json_override = serde_json::json!({"r4": "kf-x", "json": {"a": 2}});
+    let expected = expected_for(&case, &json_override);
+    assert_eq!(expected.json, &serde_json::json!({"a": 2}));
+    assert!(!expected.compare_oracle_proto);
+    assert_eq!(expected.writes, [("spectre", "old x"), ("spice", "old s")]);
+}
+
 #[test]
 fn override_check_reports_unknown_r4_ids_and_cases() {
     let parity_md = "## R4. Known\n\n| id | x |\n|---|---|\n| kf-known | y |\n\n## R5. Next\n\n| kf-other | z |\n";
@@ -139,7 +185,7 @@ fn parse_and_write_match_the_oracle() {
         let name = case["name"].as_str().unwrap();
         let input = case["input"].as_str().unwrap();
         let over = &overrides[case_key(case)];
-        let expected_json = over.get("json").unwrap_or(&case["json"]);
+        let expected = expected_for(case, over);
 
         let circuit = match parse(format, input) {
             Ok(c) => c,
@@ -151,16 +197,22 @@ fn parse_and_write_match_the_oracle() {
         parse_checked += 1;
 
         let actual: serde_json::Value = serde_json::from_str(&circuit.to_json().unwrap()).unwrap();
-        if &actual != expected_json {
+        if &actual != expected.json {
             failures.push(format!("{format}/{name}: IR differs from oracle"));
         }
 
         if let Some(proto_hex) = case["proto"].as_str() {
-            let bytes = hex_decode(proto_hex);
-            match Circuit::from_proto_bytes(&bytes) {
-                Ok(c) if c == circuit => proto_checked += 1,
-                Ok(_) => failures.push(format!("{format}/{name}: protobuf interchange differs")),
-                Err(e) => failures.push(format!("{format}/{name}: protobuf decode failed: {e}")),
+            if expected.compare_oracle_proto {
+                let bytes = hex_decode(proto_hex);
+                match Circuit::from_proto_bytes(&bytes) {
+                    Ok(c) if c == circuit => proto_checked += 1,
+                    Ok(_) => {
+                        failures.push(format!("{format}/{name}: protobuf interchange differs"))
+                    }
+                    Err(e) => {
+                        failures.push(format!("{format}/{name}: protobuf decode failed: {e}"))
+                    }
+                }
             }
             match Circuit::from_proto_bytes(&circuit.to_proto_bytes()) {
                 Ok(c) if c == circuit => {}
@@ -168,18 +220,11 @@ fn parse_and_write_match_the_oracle() {
             }
         }
 
-        if let Some(writes) = case["writes"].as_object() {
-            for (wfmt, expected) in writes {
-                let expected = over["writes"]
-                    .get(wfmt)
-                    .unwrap_or(expected)
-                    .as_str()
-                    .unwrap();
-                let got = write(wfmt, &circuit);
-                write_checked += 1;
-                if got != expected {
-                    failures.push(format!("{format}/{name}: write[{wfmt}] differs"));
-                }
+        for (wfmt, expected_text) in &expected.writes {
+            let got = write(wfmt, &circuit);
+            write_checked += 1;
+            if got != *expected_text {
+                failures.push(format!("{format}/{name}: write[{wfmt}] differs"));
             }
         }
     }
