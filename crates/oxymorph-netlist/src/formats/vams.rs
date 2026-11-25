@@ -1156,6 +1156,21 @@ fn verilog_string(text: &str) -> String {
     quoted
 }
 
+/// The Verilog-A macros as body text; the rest travel in attributes (`foreign`).
+fn verilog_macro_lines(macros: &[Macro]) -> Vec<String> {
+    let mut verilog = Vec::new();
+    for code in macros {
+        if is_verilog(code) {
+            verilog.push(code.clone());
+        }
+    }
+    let mut accept: Vec<MacroLanguage> = Vec::new();
+    for language in MACRO_LANGUAGES {
+        accept.push((language, None));
+    }
+    macro_lines(&verilog, &accept, "//")
+}
+
 fn is_verilog(code: &Macro) -> bool {
     MACRO_LANGUAGES.contains(&code.language.to_lowercase().as_str())
 }
@@ -1227,6 +1242,7 @@ pub fn write_vams(circuit: &Circuit) -> String {
     let mut lines: Vec<String> = Vec::new();
 
     write_directives(&circuit.directives, &mut lines);
+    lines.extend(verilog_macro_lines(&circuit.macros));
 
     for ext in &circuit.ext_modules {
         if ext.kind == ExternalModuleKind::Nature {
@@ -1308,6 +1324,7 @@ fn write_module(module: &Module, circuit: &Circuit, lines: &mut Vec<String>) {
         sv_name(&module.name),
         port_names.join(", ")
     ));
+    lines.extend(verilog_macro_lines(&module.macros));
 
     let mut ranges: IndexMap<&str, Option<Range>> = IndexMap::new();
     for port in &module.ports {

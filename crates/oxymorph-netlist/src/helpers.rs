@@ -5,7 +5,7 @@ use std::sync::OnceLock;
 
 use indexmap::IndexMap;
 use oxymorph_schema::{
-    AnalysisKind, Circuit, Connection, Expression, ExternalModule, Module, ModuleReference,
+    AnalysisKind, Circuit, Connection, Expression, ExternalModule, Macro, Module, ModuleReference,
     OutputRequestKind, Parameter, ParameterValue, PortReference, PrefixedValue, SignalDomain,
     Siprefix,
 };
@@ -181,6 +181,78 @@ pub fn sim_params(reference: &ModuleReference) -> (Vec<&Parameter>, SourceParams
         }
     }
     (shown, SourceParams { values })
+}
+
+// ---------------------------------------------------------------------------
+// Macros
+// ---------------------------------------------------------------------------
+
+/// The macro languages a SPICE deck takes verbatim.
+pub const SPICE_LANGUAGES: [&str; 4] = ["spice", "ngspice", "xyce", "hspice"];
+
+/// A macro language a writer accepts, and the `(before, after)` lines it wraps the body in.
+pub type MacroLanguage<'a> = (&'a str, Option<(&'a str, &'a str)>);
+
+fn accepted<'a>(language: &str, accept: &[MacroLanguage<'a>]) -> Option<MacroLanguage<'a>> {
+    let language = language.to_lowercase();
+    for entry in accept {
+        if entry.0 == language {
+            return Some(*entry);
+        }
+    }
+    None
+}
+
+/// `text` on one deck line: CR, LF, every other control character and `\\` (Spectre's and
+/// some SPICE dialects' line continuation) become a space, so untrusted metadata echoed
+/// into a generated deck can neither start a line of its own nor swallow the next one.
+pub fn one_line(text: &str) -> String {
+    let mut line = String::with_capacity(text.len());
+    for character in text.chars() {
+        line.push(if character.is_control() || character == '\\' {
+            ' '
+        } else {
+            character
+        });
+    }
+    line
+}
+
+/// The bodies of the macros whose `language` is in `accept`, verbatim (between the lines it
+/// maps to, if any); any other is a `skipped macro <name> (<language>)` comment, never a
+/// silent drop (kfnetlist also warns). Bodies are raw simulator code, written verbatim
+/// except for NUL characters; the comment's name and language are kept on one line.
+pub fn macro_lines(macros: &[Macro], accept: &[MacroLanguage], comment: &str) -> Vec<String> {
+    let mut lines = Vec::new();
+    for code in macros {
+        let Some((_, wrapping)) = accepted(&code.language, accept) else {
+            lines.push(format!(
+                "{comment} skipped macro {} ({})",
+                one_line(&code.name),
+                one_line(&code.language)
+            ));
+            continue;
+        };
+        if let Some((before, _)) = wrapping {
+            lines.push(before.to_string());
+        }
+        for line in code.body.lines() {
+            lines.push(line.replace('\0', "")); // a NUL ends a C string in a simulator
+        }
+        if let Some((_, after)) = wrapping {
+            lines.push(after.to_string());
+        }
+    }
+    lines
+}
+
+/// Every SPICE language, unwrapped: what the SPICE writers accept.
+pub fn spice_macro_languages() -> Vec<MacroLanguage<'static>> {
+    let mut languages = Vec::new();
+    for language in SPICE_LANGUAGES {
+        languages.push((language, None));
+    }
+    languages
 }
 
 // ---------------------------------------------------------------------------

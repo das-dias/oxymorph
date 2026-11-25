@@ -13,8 +13,8 @@ use crate::error::Error;
 use crate::expression::{expression_or_raw, format_expression, to_float, Dialect, Resolve};
 use crate::hdl::*;
 use crate::helpers::{
-    connections_to_instance_nets, domain_of, is_si_number, parse_parameter_number, sim_params,
-    NetMap,
+    connections_to_instance_nets, domain_of, is_si_number, macro_lines, parse_parameter_number,
+    sim_params, MacroLanguage, NetMap,
 };
 use crate::preprocess::systemverilog::preprocess_systemverilog;
 use crate::stimulus::{
@@ -1276,9 +1276,13 @@ fn behavioral_blocks(properties: &Properties) -> Vec<&String> {
 }
 
 /// Convert a circuit to structural SystemVerilog text.
+/// The macro languages SystemVerilog takes as body text.
+const MACRO_LANGUAGES: [MacroLanguage; 2] = [("systemverilog", None), ("verilog", None)];
+
 pub fn write_systemverilog(circuit: &Circuit) -> String {
     let mut lines: Vec<String> = Vec::new();
     write_directives(&circuit.directives, &mut lines);
+    lines.extend(macro_lines(&circuit.macros, &MACRO_LANGUAGES, "//"));
     for block in behavioral_blocks(&circuit.properties) {
         lines.push(block.clone());
     }
@@ -1322,6 +1326,7 @@ fn write_module(module: &Module, circuit: &Circuit, lines: &mut Vec<String>) {
         format!("(\n  {}\n)", port_lines.join(",\n  "))
     };
     lines.push(format!("module {}{params} {ports};", sv_name(&module.name)));
+    lines.extend(macro_lines(&module.macros, &MACRO_LANGUAGES, "//"));
 
     for parameter in &module.parameters {
         if is_local(parameter) {

@@ -759,6 +759,9 @@ fn analysis_kind_to_spectre(kind: AnalysisKind) -> &'static str {
     }
 }
 
+/// The lines around SPICE macro text in a Spectre deck.
+const SPICE_BLOCK: (&str, &str) = ("simulator lang=spice", "simulator lang=spectre");
+
 /// The netlist-wide settings of a Spectre write: the VACASK dialect
 /// (`properties["dialect"] == "vacask"`) and the net written as node `0`.
 struct SpectreStyle<'a> {
@@ -769,6 +772,19 @@ struct SpectreStyle<'a> {
 }
 
 impl SpectreStyle<'_> {
+    /// The body lines of `macros`: Spectre takes its own language and SPICE inside
+    /// `simulator lang=spice`; VACASK has no `simulator lang` switch, so it takes none.
+    fn macro_lines(&self, macros: &[Macro]) -> Vec<String> {
+        if self.vacask {
+            return macro_lines(macros, &[], "//");
+        }
+        let mut accept: Vec<MacroLanguage> = vec![("spectre", None)];
+        for language in SPICE_LANGUAGES {
+            accept.push((language, Some(SPICE_BLOCK)));
+        }
+        macro_lines(macros, &accept, "//")
+    }
+
     fn dialect(&self) -> Dialect {
         if self.vacask {
             Dialect::Vacask
@@ -797,6 +813,7 @@ pub fn write_spectre(circuit: &Circuit) -> String {
     let lookups = Lookups::of(circuit);
 
     write_directives(&circuit.directives, &mut lines);
+    lines.extend(style.macro_lines(&circuit.macros));
 
     for ext in &circuit.ext_modules {
         if let Some(model_type) = ext.properties.get("model_type") {
@@ -811,6 +828,7 @@ pub fn write_spectre(circuit: &Circuit) -> String {
 
     for module in &circuit.modules {
         if module.name == "__top__" {
+            lines.extend(style.macro_lines(&module.macros));
             lines.extend(instance_lines(module, &lookups, &style));
         } else {
             write_subckt(module, &lookups, &style, &mut lines);
@@ -880,10 +898,19 @@ fn write_subckt(module: &Module, lookups: &Lookups, style: &SpectreStyle, lines:
         format!(" {}", param_strs.join(" "))
     };
 
-    lines.push(format!(
-        "subckt {module_name} ({port_names}){params_suffix}",
-        module_name = module.name
-    ));
+    if style.vacask {
+        // VACASK: params go on a `parameters` line in the body
+        lines.push(format!("subckt {} ({port_names})", module.name));
+        if !param_strs.is_empty() {
+            lines.push(format!("parameters{params_suffix}"));
+        }
+    } else {
+        lines.push(format!(
+            "subckt {module_name} ({port_names}){params_suffix}",
+            module_name = module.name
+        ));
+    }
+    lines.extend(style.macro_lines(&module.macros));
     lines.extend(instance_lines(module, lookups, style));
     lines.push(format!("ends {}", module.name));
 }

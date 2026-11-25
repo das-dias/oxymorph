@@ -1244,6 +1244,9 @@ pub(crate) fn write_spice_dialect(
         }
     }
 
+    let macro_languages = spice_macro_languages();
+    lines.extend(macro_lines(&circuit.macros, &macro_languages, "*"));
+
     for ext in &circuit.ext_modules {
         let model_type = ext
             .properties
@@ -1265,6 +1268,7 @@ pub(crate) fn write_spice_dialect(
 
     for module in &circuit.modules {
         if module.name == "__top__" {
+            lines.extend(macro_lines(&module.macros, &macro_languages, "*"));
             lines.extend(instance_lines(module, &lookups, &style));
         } else {
             write_subckt(module, &lookups, &style, &mut lines);
@@ -1331,6 +1335,7 @@ fn write_subckt(module: &Module, lookups: &Lookups, style: &SpiceStyle, lines: &
     header.extend(assignments);
     header.retain(|part| !part.is_empty());
     lines.push(header.join(" "));
+    lines.extend(macro_lines(&module.macros, &spice_macro_languages(), "*"));
     lines.extend(instance_lines(module, lookups, style));
     lines.push(format!(".ends {}", module.name));
 }

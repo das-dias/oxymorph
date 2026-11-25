@@ -29,7 +29,7 @@ required-features = ["spice", "hspice", "xyce", "spectre", "spectre_spice", "vam
 
 [[test]]
 name = "kf_writers"
-required-features = ["spice", "hspice", "xyce", "spectre", "spectre_spice", "vams"]
+required-features = ["spice", "hspice", "xyce", "spectre", "spectre_spice", "vams", "systemverilog"]
 
 [[test]]
 name = "kf_stimuli"

@@ -115,8 +115,24 @@ Ported from kfnetlist 5924917, 9766e84, 1adb071, 5671e52, d94dc38:
   not written.
 - Spectre: `properties["dialect"] == "vacask"` selects VACASK (instance names
   lowercased, the `value` of R/C/L written as `r`/`c`/`l`, `ground 0` first when a
-  ground net is set); `ground_net` is node `0`; a `LIB` directive is written
+  ground net is set, subckt params on a `parameters k=v` line after the `subckt`
+  header); `ground_net` is node `0`; a `LIB` directive is written
   `include "p" section=s`, plus the `lang=` option kept in its name.
+- Macros (kfnetlist e82518b): every writer prints the body of a `Macro` whose
+  `language` it takes after the directives (the circuit's) or after the module header
+  (a module's own): the SPICE family takes `spice`, `ngspice`, `xyce`, `hspice`;
+  Spectre takes `spectre`, and SPICE inside `simulator lang=spice` …
+  `simulator lang=spectre`; VACASK takes none; SystemVerilog takes `systemverilog`,
+  `verilog`; VAMS takes `verilog-ams`, `verilog-a`, `vams` (the rest travel in its
+  `spice_code` attributes). Any other macro is a `skipped macro <name> (<language>)`
+  comment (`*` or `//`), never a silent drop; kfnetlist also warns. The name and
+  language are echoed on that one line, with CR, LF, other control characters and `\`
+  (a line continuation in Spectre and some SPICE dialects) as spaces
+  (`helpers::one_line`).
+- A macro body is raw simulator code and is written verbatim (NUL characters
+  dropped), `simulator lang=` switches and all, as kfnetlist writes it. A deck
+  converted from a third-party netlist or `.gsch` therefore carries that party's
+  simulator code (`.control` blocks, `shell`, …): treat it as code, not data.
 - Every simulation writer (SPICE family, Spectre, VAMS) leaves out instances with
   `properties["sim_skip"] == "1"` and params with `properties["role"] == "source"`,
   printing a reference to such a param as its value.
@@ -224,3 +240,4 @@ b26cd6b, d5b82b2 (`decisions/0011`); `src/hdl.rs`, `src/formats/systemverilog.rs
   falls back to `width`); a range is never walked. IR built from
   JSON can still cost up to instances × 1,000,000 pin names per port when written; a
   fallible `try_write_*` would bound that.
+

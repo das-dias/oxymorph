@@ -694,3 +694,195 @@ fn source_params_are_skipped_and_resolved() {
     let vams = write_vams(&netlist);
     assert!(vams.contains("resistor #(.w(2 * 1e-6)) R1"), "{vams}");
 }
+
+// ── VACASK subckt params (78c0483) ─────────────────────────────────────────────
+
+#[test]
+fn vacask_subckt_params_are_a_parameters_line() {
+    let inner = Module {
+        parameters: vec![parameter("k", expr("2*x"))],
+        ..module("inner", &["p"])
+    };
+    let mut netlist = circuit(vec![inner]);
+    netlist.properties = properties(&[("dialect", "vacask")]);
+    let text = write_spectre(&netlist);
+    let lines: Vec<&str> = text.lines().collect();
+    let index = lines
+        .iter()
+        .position(|line| *line == "subckt inner (p)")
+        .unwrap();
+    assert_eq!(lines[index + 1], "parameters k=2 * x");
+}
+
+// ── macros (e82518b), from test_gsch_export.py ─────────────────────────────────
+
+fn macro_netlist(macros: &[(&str, &str)], dialect: &str) -> Circuit {
+    let mut circuit_macros = Vec::new();
+    for (name, language) in macros {
+        circuit_macros.push(oxymorph_schema::Macro {
+            name: name.to_string(),
+            language: language.to_string(),
+            body: format!("{name} body"),
+            ..Default::default()
+        });
+    }
+    let cell = Module {
+        macros: vec![oxymorph_schema::Macro {
+            name: "local".to_string(),
+            language: "spice".to_string(),
+            body: "R1 a b 1k".to_string(),
+            ..Default::default()
+        }],
+        ..module("cell", &[])
+    };
+    let mut netlist = circuit(vec![cell, module("__top__", &[])]);
+    netlist.top_module = "__top__".to_string();
+    netlist.macros = circuit_macros;
+    if !dialect.is_empty() {
+        netlist.properties = properties(&[("dialect", dialect)]);
+    }
+    netlist
+}
+
+#[test]
+fn spectre_wraps_spice_macros_in_simulator_lang() {
+    let netlist = macro_netlist(&[("sp", "ngspice"), ("sc", "spectre")], "");
+    let text = write_spectre(&netlist);
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(
+        lines[..4],
+        [
+            "simulator lang=spice",
+            "sp body",
+            "simulator lang=spectre",
+            "sc body"
+        ]
+    );
+    // a circuit's own macros go inside its subckt
+    assert_eq!(
+        lines[4..8],
+        [
+            "subckt cell ()",
+            "simulator lang=spice",
+            "R1 a b 1k",
+            "simulator lang=spectre"
+        ]
+    );
+    let spice = write_spice(&macro_netlist(&[("sp", "xyce")], ""));
+    assert_eq!(spice.lines().nth(1), Some("sp body"));
+}
+
+#[test]
+fn a_macro_in_another_language_is_a_comment() {
+    // kfnetlist also warns ("skipped macro va (verilog-a-ish)"); oxymorph has no warnings
+    type Write = fn(&Circuit) -> String;
+    let writers: [(Write, &str, &str); 4] = [
+        (write_spice, "", "*"),
+        (write_hspice, "", "*"),
+        (write_spectre, "vacask", "//"),
+        (oxymorph_netlist::write_systemverilog, "", "//"),
+    ];
+    for (write_format, dialect, comment) in writers {
+        let text = write_format(&macro_netlist(&[("va", "verilog-a-ish")], dialect));
+        let note = format!("{comment} skipped macro va (verilog-a-ish)");
+        assert!(text.lines().any(|line| line == note), "{text}");
+        assert!(!text.contains("va body"), "{text}");
+    }
+}
+
+#[test]
+fn verilog_a_carries_foreign_code_in_an_attribute() {
+    let text = write_vams(&macro_netlist(&[("va", "verilog-a-ish")], ""));
+    assert!(text.contains("(* spice_code = "), "{text}"); // nothing is lost
+    let back = oxymorph_netlist::parse_vams(&text).unwrap();
+    assert_eq!(back.macros.len(), 1);
+    assert_eq!(
+        (
+            back.macros[0].name.as_str(),
+            back.macros[0].language.as_str()
+        ),
+        ("va", "verilog-a-ish")
+    );
+}
+
+#[test]
+fn hdl_writers_write_verilog_macros_as_body_text() {
+    let vams = write_vams(&macro_netlist(&[("va", "verilog-a")], ""));
+    assert!(vams.lines().any(|line| line == "va body"), "{vams}");
+    assert!(!vams.contains("spice_code"), "{vams}");
+    let netlist = macro_netlist(&[("sv", "systemverilog")], "");
+    let systemverilog = oxymorph_netlist::write_systemverilog(&netlist);
+    assert!(
+        systemverilog.lines().any(|line| line == "sv body"),
+        "{systemverilog}"
+    );
+    // a module's own spice macro: a comment in SystemVerilog, an attribute in Verilog-A
+    assert!(
+        systemverilog.contains("// skipped macro local (spice)"),
+        "{systemverilog}"
+    );
+}
+
+#[test]
+fn skipped_macro_metadata_cannot_inject_lines() {
+    let mut netlist = macro_netlist(&[], "");
+    netlist.macros = vec![oxymorph_schema::Macro {
+        name: "x\n.control\nshell rm\n.endc".to_string(),
+        language: "lua\r\n.end".to_string(),
+        body: "never written".to_string(),
+        ..Default::default()
+    }];
+    for text in [
+        write_spice(&netlist),
+        write_spectre(&netlist),
+        oxymorph_netlist::write_systemverilog(&netlist),
+    ] {
+        let mut comments = Vec::new();
+        for line in text.lines() {
+            if line.contains("skipped macro x")
+                || line.contains(".control")
+                || line.contains("shell")
+            {
+                comments.push(line);
+            }
+        }
+        assert_eq!(comments.len(), 1, "{text}");
+        assert!(comments[0].contains("skipped macro x .control shell rm .endc (lua  .end)"));
+        assert!(
+            !text
+                .lines()
+                .any(|line| line == ".control" || line == ".endc"),
+            "{text}"
+        );
+    }
+
+    // a trailing `\` would continue the comment onto the next line the writer makes
+    netlist.macros[0].name = "y\\".to_string();
+    netlist.macros[0].language = "lua\\".to_string();
+    for (text, next) in [
+        (write_spice(&netlist), ".subckt cell"),
+        (write_spectre(&netlist), "subckt cell ()"),
+    ] {
+        let lines: Vec<&str> = text.lines().collect();
+        let index = lines
+            .iter()
+            .position(|line| line.contains("skipped macro y"))
+            .unwrap();
+        assert!(!lines[index].contains('\\'), "{text}");
+        assert_eq!(lines[index + 1], next, "{text}");
+    }
+}
+
+#[test]
+fn macro_bodies_drop_nul_characters() {
+    let mut netlist = macro_netlist(&[], "");
+    netlist.macros = vec![oxymorph_schema::Macro {
+        name: "n".to_string(),
+        language: "spice".to_string(),
+        body: ".param a=1\0\n.param b=2".to_string(),
+        ..Default::default()
+    }];
+    let text = write_spice(&netlist);
+    assert!(text.lines().any(|line| line == ".param a=1"), "{text}");
+    assert!(!text.contains('\0'));
+}
