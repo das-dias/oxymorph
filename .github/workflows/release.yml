@@ -39,6 +39,13 @@ jobs:
           manylinux: ${{ matrix.manylinux }}
           before-script-linux: sh .github/scripts/install-protoc-linux.sh
           args: --release --out dist
+      # a wheel the runner can run (not musl, not x86_64 on an arm64 macOS) must import
+      - name: Import the built wheel
+        if: matrix.name != 'musllinux-x86_64' && matrix.name != 'macos-x86_64'
+        shell: bash
+        run: |
+          python -m pip install --no-index --find-links dist oxymorph
+          python -c "import oxymorph; oxymorph.parse_spice('R1 a b 1')"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist-${{ matrix.name }}

@@ -14,7 +14,10 @@ use pyo3::prelude::*;
 fn oxymorph(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add("__version__", env!("CARGO_PKG_VERSION"))?;
     module.add("MAX_NESTING", convert::MAX_NESTING)?;
-    module.add("MAX_EXPRESSION_DEPTH", oxymorph_schema::MAX_EXPRESSION_DEPTH)?;
+    module.add(
+        "MAX_EXPRESSION_DEPTH",
+        oxymorph_schema::MAX_EXPRESSION_DEPTH,
+    )?;
     enums::add_enums(module)?;
     model::add_classes(module)?;
     builders::add_functions(module)?;

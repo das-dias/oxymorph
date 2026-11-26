@@ -1,11 +1,11 @@
 # 0012. Mutable Python object model
 
-- Status: decided
+- Status: implemented
 - Date: 2026-11-26
 - Supersedes: the "bindings are thin" part of `0008-python-bindings-and-docs.md`
 - Superseded by: -
 - Related decisions: `0008-python-bindings-and-docs.md`, `0011-extend-beyond-upstream-morphnet.md`
-- Related specs: `specs/bindings.md`
+- Related specs: `specs/bindings.md` (R1, R2: the object model as shipped)
 
 ## Context
 
@@ -122,15 +122,17 @@ Harder:
   way. The parsers stay below both (`MAX_EXPRESSION_DEPTH`): deeper text is kept
   as `raw`.
 
-Owed: the binding tests run with pytest (`just test-python`), separately from
-`cargo test`, which stays Python-free.
+The binding tests run with pytest (`just test-python`), separately from
+`cargo test`, which stays Python-free; the CI job `python` runs them.
 
 ## Verification
 
 - `crates/oxymorph-python/tests/test_oxymorph.py`, run with `just test-python`:
   - `test_nested_mutation_is_written`, `test_nested_scalar_mutation_persists`
     and `test_list_attribute_reassignment_is_written`;
-  - `test_type_error_names_the_path` and `test_cycle_is_a_value_error`;
+  - `test_type_error_names_the_path`, `test_cycle_is_a_value_error` and
+    `test_oneof_is_checked_on_write`;
+  - `test_expression_at_the_bound_round_trips`;
   - `test_deepcopy_is_independent`, `test_equality_by_value` and
     `test_pickle_round_trip`;
   - `test_to_json_is_stable_for_hashing` and `test_deephash_is_stable`;

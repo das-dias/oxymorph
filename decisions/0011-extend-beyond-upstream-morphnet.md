@@ -1,11 +1,13 @@
 # 0011. Extend beyond upstream morphnet
 
-- Status: decided
+- Status: implemented
 - Date: 2026-11-25
 - Supersedes: -
 - Superseded by: -
 - Related decisions: `0001-rust-port-of-morphnet.md`, `0002-parser-engine.md`, `0004-parity-policy.md`, `0007-oracle-corpus-testing.md`
-- Related specs: `specs/parity.md`
+- Related specs: `specs/parity.md` (the overrides and R4 rows), `specs/parsing.md`
+  (R5–R9, the ported features), `specs/ir.md` (the added IR types),
+  `specs/bindings.md`
 
 ## Context
 

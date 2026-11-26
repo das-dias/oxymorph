@@ -2,7 +2,8 @@
 
 - Status: implemented
 - Date: 2026-02-11
-- Superseded in part by: `0012-mutable-python-object-model.md` ("bindings are thin": the Python object model)
+- Superseded by: `0012-mutable-python-object-model.md`, in part ("bindings are thin":
+  the Python object model)
 - Related specs: `specs/bindings.md`, `specs/parity.md`
 
 ## Context
