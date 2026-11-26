@@ -177,6 +177,45 @@ def test_cycle_is_a_value_error():
         circuit.to_json()
 
 
+def nested_calls(depth):
+    """`f(f(...f(1e-6)...))`: `depth` nodes, calls (the costliest node) over a literal leaf."""
+    return "f(" * (depth - 1) + "1e-6" + ")" * (depth - 1)
+
+
+def deck_with(text):
+    return f"* t\n.param a=1\nR1 x y r={{{text}}}\n.end\n"
+
+
+def assert_round_trips(circuit):
+    assert oxymorph.Circuit.from_json(circuit.to_json()) == circuit
+    assert oxymorph.Circuit.from_yaml(circuit.to_yaml()) == circuit
+    assert oxymorph.Circuit.from_proto_bytes(circuit.to_proto_bytes()) == circuit
+    assert copy.deepcopy(circuit) == circuit
+    assert oxymorph.parse_spice(oxymorph.write_spice(circuit)) == circuit
+
+
+def test_expression_at_the_bound_round_trips():
+    depth = oxymorph.MAX_EXPRESSION_DEPTH
+    assert oxymorph.MAX_NESTING >= depth
+    at_bound = oxymorph.parse_spice(deck_with(nested_calls(depth)))
+    value = at_bound.modules[0].module_references[0].parameters[0].default_value
+    assert value.expression.call is not None
+    assert_round_trips(at_bound)
+    # where the IR nests a value deepest: a model reference argument
+    holder = oxymorph.ParameterValue(model_ref=oxymorph.ModelReference(model_interface_name="m"))
+    holder.model_ref.arguments["w"] = copy.deepcopy(value)
+    at_bound.modules[0].module_references[0].parameters.append(oxymorph.parameter("m", default_value=holder))
+    assert oxymorph.Circuit.from_json(at_bound.to_json()) == at_bound
+    assert oxymorph.Circuit.from_proto_bytes(at_bound.to_proto_bytes()) == at_bound
+    assert copy.deepcopy(at_bound) == at_bound
+    # one over the bound, and the review's 70-term sum, stay raw text and round-trip too
+    for text in (nested_calls(depth + 1), "+".join(["a"] * 70)):
+        over = oxymorph.parse_spice(deck_with(text))
+        value = over.modules[0].module_references[0].parameters[0].default_value
+        assert value.expression.raw == f"{{{text}}}"
+        assert_round_trips(over)
+
+
 def test_pickle_round_trip():
     circuit = build_two_terminal_circuit()
     restored = pickle.loads(pickle.dumps(circuit))

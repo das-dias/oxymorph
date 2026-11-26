@@ -83,10 +83,13 @@ Ported from kfnetlist d0daf3e, 1adb071, c12a71e, d94dc38 (`decisions/0011`);
 - `parse_expression(text)` reads any dialect's expression text with one shared
   grammar (`grammars/expression.lark`, LALR): SI-suffixed numbers, references,
   unary/binary operators, comparisons, logic, calls and `?:`. One outer `{…}` or
-  `'…'` is stripped first; text that does not parse is kept as `raw`. Text that
-  could nest deeper than 128 levels (each parenthesised group and each operator
-  character counts) is rejected with `Error::Validation`; the parsers keep such a
-  value verbatim as `raw` instead.
+  `'…'` is stripped first; text that does not parse is kept as `raw`. A tree
+  deeper than `MAX_EXPRESSION_DEPTH` (32, `oxymorph-schema`) nodes is rejected
+  with `Error::Validation`; the parsers keep such a value verbatim as `raw`
+  instead. The depth is the parse tree's, measured without recursing: one node per
+  operator, call, `?:`, literal or reference, so parentheses that add no node
+  (`((a))`), two-character operators (`**`, `&&`) and exponents (`1e-6`) count
+  once or not at all.
 - `format_expression(expr, dialect, resolve, named)` prints canonical infix text
   with minimal parentheses (`0.13 * 1e-6`). ngspice/Xyce wrap a compound
   expression in `{…}`, HSPICE in `'…'`; Spectre, VACASK, SystemVerilog and VAMS

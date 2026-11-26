@@ -51,15 +51,24 @@ pub const MAX_TREE_DEPTH: usize = 256;
 /// `Error::Validation` when `tree` nests deeper than [`MAX_TREE_DEPTH`] (untrusted text:
 /// `{{{…}}}`, `(((…)))` or a long operator chain), checked without recursing.
 pub fn check_tree_depth(tree: &ParseTree) -> Result<(), crate::Error> {
+    if is_deeper_than(tree, MAX_TREE_DEPTH) {
+        return Err(crate::Error::Validation(format!(
+            "the text nests deeper than {MAX_TREE_DEPTH} levels"
+        )));
+    }
+    Ok(())
+}
+
+/// Whether `tree` has a branch of more than `limit` rule nodes (tokens do not count),
+/// found without recursing.
+pub fn is_deeper_than(tree: &ParseTree, limit: usize) -> bool {
     let ParseTree::Tree(root) = tree else {
-        return Ok(());
+        return false;
     };
     let mut pending: Vec<(&Tree, usize)> = vec![(root, 1)];
     while let Some((node, depth)) = pending.pop() {
-        if depth > MAX_TREE_DEPTH {
-            return Err(crate::Error::Validation(format!(
-                "the text nests deeper than {MAX_TREE_DEPTH} levels"
-            )));
+        if depth > limit {
+            return true;
         }
         for child in &node.children {
             if let Child::Tree(subtree) = child {
@@ -67,5 +76,5 @@ pub fn check_tree_depth(tree: &ParseTree) -> Result<(), crate::Error> {
             }
         }
     }
-    Ok(())
+    false
 }

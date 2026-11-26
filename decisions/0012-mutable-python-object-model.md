@@ -56,9 +56,15 @@ the Rust IR. No class or field is defined in Python.
   follows.
   - A list or dict item of the wrong type raises `TypeError` and names its path,
     e.g. `modules[0].module_references[3]: expected ModuleReference, got str`.
-  - The walk is bounded at `MAX_NESTING` (128) steps, the JSON nesting that
-    serde_json reads. A cycle, or deeper nesting, raises `ValueError`, not a
-    stack overflow.
+  - The walk is bounded at `MAX_NESTING` (128) steps. A cycle, or deeper
+    nesting, raises `ValueError`, not a stack overflow.
+  - `MAX_NESTING` is at least what the IR legitimately holds. The parsers build
+    expression trees at most `oxymorph_schema::MAX_EXPRESSION_DEPTH` (32) nodes
+    deep, and such a tree under the deepest container (a model reference
+    argument of an instance parameter) takes 106 steps. The binding asserts this
+    at compile time. The same tree also reads back from serde_json (127 levels),
+    YAML and prost (100 messages), so every value a parser returns converts,
+    serializes and compares.
 - **Value semantics go through the IR.**
   - `==` compares the converted IR values with Rust's `PartialEq`. Dicts compare
     as maps, as in Python and Pydantic.
@@ -109,8 +115,10 @@ Harder:
 - deepdiff `DeepHash` walks the attributes of every object. On large circuits
   this is slow: about 6 s for 40 000 objects. Hashing `to_json()` is the fast
   path.
-- An expression nested deeper than the bound does not convert. The same limit
-  applies to `Circuit::from_json` in Rust.
+- An expression built in Python deeper than the converter's bound does not
+  convert; serde_json's 127 levels limit `Circuit::from_json` in Rust the same
+  way. The parsers stay below both (`MAX_EXPRESSION_DEPTH`): deeper text is kept
+  as `raw`.
 
 Owed: the binding tests run with pytest (`just test-python`), separately from
 `cargo test`, which stays Python-free.

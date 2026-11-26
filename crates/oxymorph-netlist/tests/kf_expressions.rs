@@ -5,14 +5,17 @@
 
 use std::collections::HashMap;
 
-use oxymorph_netlist::expression::{format_expression, parse_expression, Dialect};
+use oxymorph_netlist::expression::{
+    format_expression, parameter_value, parse_expression, Dialect, MAX_EXPRESSION_DEPTH,
+};
 use oxymorph_netlist::hdl::HdlOptions;
 use oxymorph_netlist::{
     parse_hspice, parse_spectre, parse_spice, parse_systemverilog, parse_xyce, write_hspice,
     write_spectre, write_spice, write_systemverilog, write_xyce, Error,
 };
 use oxymorph_schema::{
-    BinaryOp, Call, Circuit, Expression, Operator, PrefixedValue, Siprefix, Ternary, UnaryOp,
+    BinaryOp, Call, Circuit, Expression, ModelReference, Module, ModuleReference, Operator,
+    Parameter, ParameterValue, PrefixedValue, Siprefix, Ternary, UnaryOp,
 };
 
 fn parsed(text: &str) -> Expression {
@@ -329,20 +332,35 @@ fn expression_round_trips_in_every_dialect() {
 fn expression_depth_is_limited() {
     let nested_parentheses = |depth: usize| format!("{}a{}", "(".repeat(depth), ")".repeat(depth));
     let nested_negations = |depth: usize| format!("{}a", "-".repeat(depth));
-    for text in [nested_parentheses(129), nested_negations(129)] {
-        assert!(matches!(parse_expression(&text), Err(Error::Validation(_))));
-    }
+    let sum = |terms: usize| vec!["a"; terms].join(" + ");
+    // the tree's depth counts, not the text's characters: `((a))` is one node
     assert_eq!(
-        parse_expression(&nested_parentheses(100)).unwrap(),
+        parse_expression(&nested_parentheses(10_000)).unwrap(),
         Expression::reference("a")
     );
-    let mut negations = parse_expression(&nested_negations(100)).unwrap();
-    for _ in 0..100 {
+    let deepest = MAX_EXPRESSION_DEPTH - 1;
+    let mut negations = parse_expression(&nested_negations(deepest)).unwrap();
+    for _ in 0..deepest {
         let unary = negations.unary.expect("a negation");
         assert_eq!(unary.op, Operator::Neg);
         negations = *unary.operand.unwrap();
     }
     assert_eq!(negations, Expression::reference("a"));
+    assert!(parse_expression(&sum(MAX_EXPRESSION_DEPTH)).is_ok());
+    // deep text is refused without overflowing the stack
+    for text in [
+        nested_negations(MAX_EXPRESSION_DEPTH),
+        sum(MAX_EXPRESSION_DEPTH + 1),
+        nested_negations(100_000),
+        sum(100_000),
+    ] {
+        assert!(matches!(parse_expression(&text), Err(Error::Validation(_))));
+    }
+    // two-character operators and exponents count once per node
+    for operator in [" ** ", " && ", " <= "] {
+        let chain = vec!["1e-6"; MAX_EXPRESSION_DEPTH].join(operator);
+        assert!(parse_expression(&chain).is_ok(), "{chain}");
+    }
     // a parser keeps over-deep text verbatim rather than failing the netlist
     let circuit = parse_spectre(&format!(
         "subckt cell (p n)\nR1 (p n) resistor w={}\nends cell\n",
@@ -350,6 +368,87 @@ fn expression_depth_is_limited() {
     ))
     .unwrap();
     assert_eq!(param(&circuit, "w"), Some(raw(&nested_negations(200))));
+}
+
+/// `f(f(…f(1e-6)…))`: a tree `depth` nodes deep, every inner node a call (the costliest
+/// node in JSON) and the leaf a literal (the costliest leaf).
+fn nested_calls(depth: usize) -> String {
+    format!("{}1e-6{}", "f(".repeat(depth - 1), ")".repeat(depth - 1))
+}
+
+/// A circuit holding `value` where the IR nests a value deepest: a model reference argument
+/// of an instance parameter, and as the parameter's own value.
+fn circuit_holding(value: &ParameterValue) -> Circuit {
+    let model_ref = ParameterValue {
+        model_ref: Some(ModelReference {
+            model_interface_name: "m".to_string(),
+            arguments: [("w".to_string(), value.clone())].into_iter().collect(),
+        }),
+        ..Default::default()
+    };
+    let parameters = vec![
+        Parameter {
+            name: "r".to_string(),
+            default_value: Some(value.clone()),
+            ..Default::default()
+        },
+        Parameter {
+            name: "model".to_string(),
+            default_value: Some(model_ref),
+            ..Default::default()
+        },
+    ];
+    Circuit {
+        top_module: "cell".to_string(),
+        modules: vec![Module {
+            name: "cell".to_string(),
+            module_references: vec![ModuleReference {
+                name: "R1".to_string(),
+                module_name: "resistor".to_string(),
+                parameters,
+                ..Default::default()
+            }],
+            ..Default::default()
+        }],
+        ..Default::default()
+    }
+}
+
+fn assert_round_trips(circuit: &Circuit) {
+    let json = circuit.to_json().unwrap();
+    assert_eq!(&Circuit::from_json(&json).unwrap(), circuit, "JSON");
+    let yaml = circuit.to_yaml().unwrap();
+    assert_eq!(&Circuit::from_yaml(&yaml).unwrap(), circuit, "YAML");
+    let proto = circuit.to_proto_bytes();
+    assert_eq!(
+        &Circuit::from_proto_bytes(&proto).unwrap(),
+        circuit,
+        "proto"
+    );
+}
+
+/// The parsers build trees at most `MAX_EXPRESSION_DEPTH` deep, which every interchange
+/// format reads back; deeper text stays `raw`, which round-trips too.
+#[test]
+fn expression_at_the_bound_round_trips() {
+    let at_bound = parameter_value(&nested_calls(MAX_EXPRESSION_DEPTH));
+    let expression = at_bound.expression.as_ref().unwrap();
+    assert!(expression.call.is_some(), "{expression:?}");
+    assert_round_trips(&circuit_holding(&at_bound));
+    let text = format!("{{{}}}", nested_calls(MAX_EXPRESSION_DEPTH));
+    let deck = format!(".subckt cell p n\nR1 p n r={text}\n.ends cell\n.end\n");
+    let parsed = parse_spice(&deck).unwrap();
+    assert_eq!(param(&parsed, "r"), at_bound.expression);
+    assert_eq!(parse_spice(&write_spice(&parsed)).unwrap(), parsed);
+
+    let over_text = nested_calls(MAX_EXPRESSION_DEPTH + 1);
+    assert!(matches!(
+        parse_expression(&over_text),
+        Err(Error::Validation(_))
+    ));
+    let over_bound = parameter_value(&over_text);
+    assert_eq!(over_bound.expression, Some(raw(&over_text)));
+    assert_round_trips(&circuit_holding(&over_bound));
 }
 
 // ---------------------------------------------------------------------------

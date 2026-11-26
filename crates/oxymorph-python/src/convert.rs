@@ -17,9 +17,27 @@ use pyo3::{PyClass, PyTraverseError, PyTypeInfo, PyVisit};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
-/// The deepest object graph converted, in attribute and item steps. One step is one JSON level
-/// and serde_json reads at most 128, so a cycle stops here instead of overflowing the stack.
+/// The deepest object graph converted, in attribute and item steps, so a cycle stops here
+/// instead of overflowing the stack. It is at least what the IR legitimately holds: an
+/// expression `MAX_EXPRESSION_DEPTH` deep where the IR nests one deepest (asserted below).
+/// serde_json, YAML and protobuf read that much back (`oxymorph_schema::MAX_EXPRESSION_DEPTH`).
 pub const MAX_NESTING: usize = 128;
+
+/// Steps from a `Circuit` to its deepest expression:
+/// `modules[i].module_references[j].parameters[k].default_value.model_ref.arguments['w'].expression`.
+const STEPS_TO_DEEPEST_EXPRESSION: usize = 11;
+/// Steps of a call node (`.call.args[i]`), the costliest node.
+const STEPS_PER_CALL: usize = 3;
+/// Steps of a literal leaf (`.literal.double_value`), the costliest leaf.
+const STEPS_PER_LITERAL: usize = 2;
+
+const _: () = assert!(
+    MAX_NESTING
+        >= STEPS_TO_DEEPEST_EXPRESSION
+            + STEPS_PER_CALL * (oxymorph_schema::MAX_EXPRESSION_DEPTH - 1)
+            + STEPS_PER_LITERAL,
+    "MAX_NESTING must convert every expression the parsers build"
+);
 
 pub fn value_error(error: impl ToString) -> PyErr {
     PyValueError::new_err(error.to_string())

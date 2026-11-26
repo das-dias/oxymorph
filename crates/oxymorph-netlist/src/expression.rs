@@ -16,6 +16,7 @@ use oxymorph_schema::{
 };
 use regex::{Captures, Regex};
 
+use crate::ast::is_deeper_than;
 use crate::engine::Engine;
 use crate::error::Error;
 use crate::helpers::{
@@ -28,9 +29,9 @@ thread_local! {
     static ENGINE: Engine = Engine::lalr(GRAMMAR).expect("expression grammar builds");
 }
 
-/// Deepest nesting `parse_expression` accepts: the IR and its printers recurse, and an
-/// expression is untrusted netlist text.
-pub const MAX_EXPRESSION_DEPTH: usize = 128;
+/// Deepest tree `parse_expression` builds: the IR, its printers and its interchange
+/// formats nest, and an expression is untrusted netlist text.
+pub use oxymorph_schema::MAX_EXPRESSION_DEPTH;
 
 /// How a simulator spells an expression (kfnetlist's dialect names).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -124,8 +125,9 @@ fn word_re() -> &'static Regex {
 
 /// The expression tree of `text`; `raw` text when it does not parse.
 ///
-/// One outer `{…}` or `'…'` (SPICE dialect wrapping) is stripped first. The only error is
-/// nesting deeper than [`MAX_EXPRESSION_DEPTH`] (`Error::Validation`).
+/// One outer `{…}` or `'…'` (SPICE dialect wrapping) is stripped first. The only error is a
+/// tree deeper than [`MAX_EXPRESSION_DEPTH`] nodes (`Error::Validation`); parentheses that
+/// add no node (`((a))`) do not count.
 pub fn parse_expression(text: &str) -> Result<Expression, Error> {
     let mut body = text.trim();
     let bytes = body.as_bytes();
@@ -137,15 +139,15 @@ pub fn parse_expression(text: &str) -> Result<Expression, Error> {
     {
         body = &body[1..body.len() - 1];
     }
-    let depth = nesting_bound(body);
-    if depth > MAX_EXPRESSION_DEPTH {
-        return Err(Error::Validation(format!(
-            "expression nests {depth} levels deep (at most {MAX_EXPRESSION_DEPTH})"
-        )));
-    }
     let Ok(tree) = ENGINE.with(|engine| engine.parse(body)) else {
         return Ok(raw_expression(text));
     };
+    // the grammar's parse tree has one rule node per expression node
+    if is_deeper_than(&tree, MAX_EXPRESSION_DEPTH) {
+        return Err(Error::Validation(format!(
+            "expression nests deeper than {MAX_EXPRESSION_DEPTH} levels"
+        )));
+    }
     Ok(build(&tree).unwrap_or_else(|| raw_expression(text)))
 }
 
@@ -154,35 +156,6 @@ fn raw_expression(text: &str) -> Expression {
         raw: Some(text.to_string()),
         ..Default::default()
     }
-}
-
-/// An upper bound on the depth of the tree `body` parses to, without recursing: each
-/// parenthesised group adds one level plus its deepest group, and each operator
-/// character may add a level.
-fn nesting_bound(body: &str) -> usize {
-    // (operators at this level, deepest nested group)
-    let mut levels: Vec<(usize, usize)> = vec![(0, 0)];
-    for character in body.chars() {
-        match character {
-            '(' => levels.push((0, 0)),
-            ')' if levels.len() > 1 => close_group(&mut levels),
-            '+' | '-' | '*' | '/' | '%' | '<' | '>' | '=' | '!' | '&' | '|' | '?' | ':' => {
-                levels.last_mut().unwrap().0 += 1;
-            }
-            _ => {}
-        }
-    }
-    while levels.len() > 1 {
-        close_group(&mut levels);
-    }
-    let (operators, deepest) = levels[0];
-    operators + deepest
-}
-
-fn close_group(levels: &mut Vec<(usize, usize)>) {
-    let (operators, deepest) = levels.pop().unwrap();
-    let parent = levels.last_mut().unwrap();
-    parent.1 = parent.1.max(1 + operators + deepest);
 }
 
 fn build(tree: &ParseTree) -> Option<Expression> {

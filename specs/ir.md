@@ -33,6 +33,14 @@ at `e596bb5` (`decisions/0011`):
 (`"… is a oneof: …"`); `Waveform` rejects `points` together with a `file`, and a
 `file` on a non-PWL waveform.
 
+`MAX_EXPRESSION_DEPTH` (32) is the deepest expression tree the parsers build, counted
+in nodes from the root to the deepest leaf. A tree that deep, held where the IR nests
+an expression deepest (a model reference argument of an instance parameter), reads
+back from JSON and YAML (127 nested levels at most), protobuf (100 nested messages)
+and the Python converter (`MAX_NESTING`, 128 steps); the constant's doc gives the
+arithmetic. The IR itself does not enforce it: a deeper tree built in Rust or Python
+is written, and fails only where a reader's own limit is reached.
+
 ## R2. Serialization
 
 - Field names match the Python field names (`ports`, `port_name`, …).

@@ -13,7 +13,9 @@ pub mod expression;
 pub mod paths;
 pub mod proto;
 
-pub use expression::{BinaryOp, Call, Expression, Operator, Ternary, UnaryOp};
+pub use expression::{
+    BinaryOp, Call, Expression, Operator, Ternary, UnaryOp, MAX_EXPRESSION_DEPTH,
+};
 
 use indexmap::IndexMap;
 
