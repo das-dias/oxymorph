@@ -4,6 +4,7 @@
 //! IR at each parse, write, serialization and comparison, so every in-place edit of a live list
 //! or dict is seen. The walk is bounded by [`MAX_NESTING`] and names the [`Path`] of a wrong type.
 
+use std::cell::RefCell;
 use std::convert::Infallible;
 use std::fmt::Write;
 use std::marker::PhantomData;
@@ -113,6 +114,38 @@ impl<'a> Path<'a> {
         } else {
             PyTypeError::new_err(format!("{rendered}: expected {expected}, got {found}"))
         }
+    }
+}
+
+thread_local! {
+    /// The models whose `repr` is being built on this thread, outermost first.
+    static REPR_STACK: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
+}
+
+/// One model on this thread's `repr` stack, popped on drop. `enter` gives `None` when the
+/// object is already on the stack (a cycle) or the stack is [`MAX_NESTING`] deep, so `repr`
+/// prints `Name(...)` instead of recursing until the C stack overflows.
+pub struct ReprGuard;
+
+impl ReprGuard {
+    pub fn enter(object: &Bound<'_, PyAny>) -> Option<ReprGuard> {
+        let address = object.as_ptr() as usize;
+        REPR_STACK.with(|stack| {
+            let mut stack = stack.borrow_mut();
+            if stack.len() >= MAX_NESTING || stack.contains(&address) {
+                return None;
+            }
+            stack.push(address);
+            Some(ReprGuard)
+        })
+    }
+}
+
+impl Drop for ReprGuard {
+    fn drop(&mut self) {
+        REPR_STACK.with(|stack| {
+            stack.borrow_mut().pop();
+        });
     }
 }
 
@@ -557,10 +590,15 @@ macro_rules! model {
                 Self::from_ir(py, &ir)
             }
 
-            fn __repr__(&self, py: Python<'_>) -> PyResult<String> {
+            fn __repr__(slf: &Bound<'_, Self>) -> PyResult<String> {
+                let Some(_guard) = $crate::convert::ReprGuard::enter(slf.as_any()) else {
+                    return Ok(format!("{}(...)", stringify!($name)));
+                };
+                let py = slf.py();
+                let this = slf.try_borrow()?;
                 let mut parts: Vec<String> = Vec::new();
                 $(
-                    if let Some(text) = $crate::convert::Field::repr(&self.$field, py)? {
+                    if let Some(text) = $crate::convert::Field::repr(&this.$field, py)? {
                         parts.push(format!("{}={}", stringify!($field), text));
                     }
                 )*

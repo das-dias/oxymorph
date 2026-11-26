@@ -145,8 +145,8 @@ Circuit.add_library(name, library)
 
 `Module.connect` chains its endpoints into connections, so endpoints A, B, C give
 A→B and B→C. An endpoint is `(instance_name, port_name)`. Instance `""` is the
-module's own port. A lone endpoint A gives A→A, which names the net of a single
-terminal. No endpoint at all raises `ValueError`.
+module's own port. `connect` needs at least two endpoints and raises `ValueError`
+with fewer; to name the net of a single terminal, pass it twice.
 
 ## Expressions and paths
 

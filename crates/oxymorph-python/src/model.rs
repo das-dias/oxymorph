@@ -163,9 +163,9 @@ model! {
             Ok(slf)
         }
 
-        /// Chained connections on net `net_name`: endpoints A, B, C give A→B and B→C, a lone
-        /// endpoint A gives A→A. An endpoint is `(instance_name, port_name)`; instance "" is this
-        /// module's own port.
+        /// Chained connections on net `net_name`: endpoints A, B, C give A→B and B→C. An endpoint
+        /// is `(instance_name, port_name)`; instance "" is this module's own port. Fewer than two
+        /// endpoints raise `ValueError`, as in kfnetlist: pass a lone terminal twice to name its net.
         #[pyo3(signature = (net_name, *endpoints, domain = None, properties = None))]
         fn connect<'py>(
             slf: PyRef<'py, Self>,
@@ -175,14 +175,16 @@ model! {
             properties: Option<LiveDict<String>>,
         ) -> PyResult<PyRef<'py, Self>> {
             let py = slf.py();
-            if endpoints.is_empty() {
-                return Err(value_error(format!("connect({net_name:?}): no endpoints")));
+            if endpoints.len() < 2 {
+                return Err(value_error(format!(
+                    "connect('{net_name}'): need ≥ 2 endpoints, got {}",
+                    endpoints.len()
+                )));
             }
-            let last_index = endpoints.len() - 1;
             let connections = slf.connections.bind(py);
-            for index in 0..last_index.max(1) {
-                let source = endpoints[index].clone();
-                let target = endpoints[(index + 1).min(last_index)].clone();
+            for pair in endpoints.windows(2) {
+                let source = pair[0].clone();
+                let target = pair[1].clone();
                 let connection_properties = match &properties {
                     Some(shared) => Some(shared.bind(py).extract()?),
                     None => None,

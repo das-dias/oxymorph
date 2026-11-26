@@ -100,12 +100,11 @@ def test_connect_chains_pairs():
     ]
     assert pairs == [(endpoint_a, endpoint_b), (endpoint_b, endpoint_c)]
     assert {connection.name for connection in module.connections} == {"VDD"}
-    lone = oxymorph.module("m").connect("GND", endpoint_a)
-    assert [(connection.source.port_name, connection.target.port_name) for connection in lone.connections] == [
-        ("a", "a")
-    ]
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="need ≥ 2 endpoints, got 1"):
+        module.connect("VDD", endpoint_a)
+    with pytest.raises(ValueError, match="got 0"):
         module.connect("VDD")
+    assert len(module.connections) == 2
 
 
 def test_enums_have_members():
@@ -259,6 +258,21 @@ def test_unknown_ir_field_is_rejected():
         oxymorph.Circuit(name="x").colour = "red"
 
 
+def test_repr_is_bounded():
+    cycle = oxymorph.Expression()
+    cycle.unary = oxymorph.UnaryOp(op=oxymorph.Operator.NEG, operand=cycle)
+    assert repr(cycle) == "Expression(unary=UnaryOp(op=Operator.NEG, operand=Expression(...)))"
+    module = oxymorph.module("m")
+    module.connections.append(module)
+    assert repr(module) == "Module(name='m', connections=[Module(...)])"
+    chain = oxymorph.Expression(reference="leaf")
+    for _ in range(5000):
+        chain = oxymorph.Expression(unary=oxymorph.UnaryOp(op=oxymorph.Operator.NEG, operand=chain))
+    text = repr(chain)
+    assert text.startswith("Expression(unary=UnaryOp(") and "Expression(...)" in text
+    assert text.count("Expression(") <= oxymorph.MAX_NESTING + 1
+
+
 def test_object_model_is_native():
     for class_name in ("Circuit", "Module", "ModuleReference", "Connection", "Expression", "Waveform"):
         model_class = getattr(oxymorph, class_name)
@@ -380,7 +394,7 @@ def test_gfpex_flow():
     annotated = copy.deepcopy(reference)
     top_module = next(module for module in annotated.modules if module.name == annotated.top_module)
     top_module.connections = [connection for connection in top_module.connections if connection.name != "IN"]
-    top_module.connect("IN", ("", "IN"), ("", "IN")).connect("M1/g", ("M1", "g"))
+    top_module.connect("IN", ("", "IN"), ("", "IN")).connect("M1/g", ("M1", "g"), ("M1", "g"))
     resistors = oxymorph.module("__top__")
     for name, node_p, node_n, value in [("RIN_0", "IN", "IN_34_0_0", 1.0), ("RIN_1", "IN_34_0_0", "M1/g", 2.0)]:
         resistors.add(oxymorph.module_reference(name, "resistor", value=value, properties={"net": "IN"}))

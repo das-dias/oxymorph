@@ -15,8 +15,8 @@ The `oxymorph` Python module (`decisions/0008`).
   oxymorph names.
 - **Chaining.** `Circuit.add`, `add_ext` and `add_library`, and `Module.add_terminal`,
   `add` and `connect`, return `self`. `Circuit.add` sets `top_module` to the first
-  module added when it is unset. `connect` chains its endpoints pairwise. A lone
-  endpoint connects to itself, and no endpoint at all is a `ValueError`.
+  module added when it is unset. `connect` chains its endpoints pairwise and needs
+  at least two: fewer raise `ValueError`, as in kfnetlist.
 - **Expressions and paths.** `parse_expression`, `format_expression`,
   `posix_file`, `is_absolute` and `resolve_file`.
 - **Errors.** Parse, write and serialization failures raise `ValueError`.
