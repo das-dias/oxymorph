@@ -26,7 +26,7 @@ model! {
 
 model! {
     /// One of `prefixed_value`, `model_ref`, `expression` set at most (a oneof).
-    ParameterValue => ir::ParameterValue {
+    ParameterValue => ir::ParameterValue check ir::ParameterValue::check_oneof {
         prefixed_value: Option<Py<PrefixedValue>>,
         model_ref: Option<Py<ModelReference>>,
         expression: Option<Py<Expression>>,
@@ -397,7 +397,7 @@ model! {
 
 model! {
     /// One node kind set at most (a oneof).
-    Expression => ir::Expression {
+    Expression => ir::Expression check ir::Expression::check_oneof {
         literal: Option<Py<PrefixedValue>>,
         reference: Option<String>,
         unary: Option<Py<UnaryOp>>,

@@ -127,6 +127,15 @@ impl Expression {
     /// Mirrors `Expression._check_oneof` over the whole tree: at most one node
     /// kind per expression.
     pub fn validate(&self) -> Result<(), String> {
+        self.check_oneof()?;
+        for child in self.children() {
+            child.validate()?;
+        }
+        Ok(())
+    }
+
+    /// [`Self::validate`] of this node alone, not of its children.
+    pub fn check_oneof(&self) -> Result<(), String> {
         let set_count = self.literal.is_some() as u8
             + self.reference.is_some() as u8
             + self.unary.is_some() as u8
@@ -140,9 +149,6 @@ impl Expression {
                  'unary', 'binary', 'call', 'ternary', 'raw'"
                     .to_string(),
             );
-        }
-        for child in self.children() {
-            child.validate()?;
         }
         Ok(())
     }

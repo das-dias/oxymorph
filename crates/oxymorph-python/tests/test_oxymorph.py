@@ -216,6 +216,24 @@ def test_expression_at_the_bound_round_trips():
         assert_round_trips(over)
 
 
+def test_oneof_is_checked_on_write():
+    circuit = build_two_terminal_circuit()
+    both = oxymorph.ParameterValue(
+        prefixed_value=oxymorph.PrefixedValue(double_value=1.0), expression=oxymorph.Expression(reference="k")
+    )
+    circuit.modules[0].module_references[0].parameters.append(oxymorph.parameter("r", default_value=both))
+    path = r"^modules\[0\]\.module_references\[0\]\.parameters\[1\]\.default_value: ParameterValue is a oneof"
+    for convert in (oxymorph.write_spice, oxymorph.Circuit.to_json, copy.deepcopy):
+        with pytest.raises(ValueError, match=path):
+            convert(circuit)
+    circuit = build_two_terminal_circuit()
+    node = oxymorph.Expression(reference="a", raw="a")
+    value = oxymorph.ParameterValue(expression=oxymorph.Expression(unary=oxymorph.UnaryOp(op=oxymorph.Operator.NEG, operand=node)))
+    circuit.modules[0].module_references[0].parameters.append(oxymorph.parameter("w", default_value=value))
+    with pytest.raises(ValueError, match=r"default_value\.expression\.unary\.operand: Expression is a oneof"):
+        oxymorph.write_spice(circuit)
+
+
 def test_pickle_round_trip():
     circuit = build_two_terminal_circuit()
     restored = pickle.loads(pickle.dumps(circuit))

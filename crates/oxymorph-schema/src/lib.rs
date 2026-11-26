@@ -200,6 +200,15 @@ impl ParameterValue {
     /// Mirrors `ParameterValue._check_oneof`: at most one variant may be set
     /// (and an expression is itself a valid tree).
     pub fn validate(&self) -> Result<(), String> {
+        self.check_oneof()?;
+        if let Some(expression) = &self.expression {
+            expression.validate()?;
+        }
+        Ok(())
+    }
+
+    /// [`Self::validate`] of this value alone, not of its expression.
+    pub fn check_oneof(&self) -> Result<(), String> {
         let set_count = self.prefixed_value.is_some() as u8
             + self.model_ref.is_some() as u8
             + self.expression.is_some() as u8;
@@ -209,9 +218,6 @@ impl ParameterValue {
                  'model_ref', 'expression'"
                     .to_string(),
             );
-        }
-        if let Some(expression) = &self.expression {
-            expression.validate()?;
         }
         Ok(())
     }

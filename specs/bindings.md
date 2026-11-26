@@ -42,7 +42,11 @@ The `oxymorph` Python module (`decisions/0008`).
   IR's serde JSON. The JSON is deterministic, and equal values give equal JSON.
 - **Conversion.** The graph is converted to the IR at each parse, write,
   serialization and comparison. A wrongly typed list or dict item raises
-  `TypeError` and names its path. A graph nested deeper than `MAX_NESTING` (128) steps, such as a cycle,
+  `TypeError` and names its path. A `ParameterValue` or `Expression` with more
+  than one variant set raises `ValueError` and names its path
+  (`modules[0].module_references[0].parameters[1].default_value: ParameterValue is
+  a oneof: …`), so writing, `to_json`, `==` and `deepcopy` never pick one variant
+  silently. A graph nested deeper than `MAX_NESTING` (128) steps, such as a cycle,
   raises `ValueError`.
 - **Depth.** `MAX_NESTING` is at least what the IR legitimately holds: an
   expression `MAX_EXPRESSION_DEPTH` (32) nodes deep where the IR nests one deepest

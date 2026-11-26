@@ -121,6 +121,16 @@ impl<'a> Path<'a> {
         rendered
     }
 
+    /// `ValueError` naming this path: `modules[0].parameters[1].default_value: <message>`.
+    pub fn value_error(&self, message: &str) -> PyErr {
+        let rendered = self.render();
+        if rendered.is_empty() {
+            PyValueError::new_err(message.to_string())
+        } else {
+            PyValueError::new_err(format!("{rendered}: {message}"))
+        }
+    }
+
     pub fn type_error(&self, expected: &str, value: &Bound<'_, PyAny>) -> PyErr {
         let found = match value.get_type().name() {
             Ok(name) => name.to_string(),
@@ -509,11 +519,13 @@ macro_rules! field_from_ir {
 /// A `#[pyclass]` for one IR type: a keyword-only constructor, `get`/`set` attributes, the
 /// conversion, and `==`, `copy`, `deepcopy`, pickle, `to_json`/`from_json` and `repr` through
 /// the IR. Fields the IR boxes are marked `as boxed`; extra methods go in `methods { ... }`.
+/// `check <fn>` validates each converted value (`fn(&Ir) -> Result<(), String>`), so an invalid
+/// one is a `ValueError` naming its path.
 #[macro_export]
 macro_rules! model {
     (
         $(#[$meta:meta])*
-        $name:ident => $ir_module:ident :: $ir:ident {
+        $name:ident => $ir_module:ident :: $ir:ident $(check $check:path)? {
             $($field:ident : $field_type:ty $(as $mode:ident)?),* $(,)?
         }
         $(methods { $($methods:tt)* })?
@@ -535,7 +547,7 @@ macro_rules! model {
                 py: Python<'_>,
                 path: &$crate::convert::Path<'_>,
             ) -> PyResult<$ir_module::$ir> {
-                Ok($ir_module::$ir {
+                let ir = $ir_module::$ir {
                     $(
                         $field: $crate::ir_of_field!(
                             $crate::convert::Field::to_ir(
@@ -546,7 +558,9 @@ macro_rules! model {
                             $(, $mode)?
                         ),
                     )*
-                })
+                };
+                $($check(&ir).map_err(|message| path.value_error(&message))?;)?
+                Ok(ir)
             }
 
             fn from_ir(py: Python<'_>, ir: &$ir_module::$ir) -> PyResult<Self> {

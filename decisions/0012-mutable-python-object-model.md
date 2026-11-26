@@ -56,6 +56,8 @@ the Rust IR. No class or field is defined in Python.
   follows.
   - A list or dict item of the wrong type raises `TypeError` and names its path,
     e.g. `modules[0].module_references[3]: expected ModuleReference, got str`.
+  - A `ParameterValue` or `Expression` with more than one variant set raises
+    `ValueError` and names its path, as Pydantic's oneof validators would.
   - The walk is bounded at `MAX_NESTING` (128) steps. A cycle, or deeper
     nesting, raises `ValueError`, not a stack overflow.
   - `MAX_NESTING` is at least what the IR legitimately holds. The parsers build

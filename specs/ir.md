@@ -31,7 +31,8 @@ at `e596bb5` (`decisions/0011`):
 `validate()` mirrors the Pydantic validators, and is called explicitly:
 `ParameterValue` and `Expression` (whole tree) reject more than one variant set
 (`"… is a oneof: …"`); `Waveform` rejects `points` together with a `file`, and a
-`file` on a non-PWL waveform.
+`file` on a non-PWL waveform. `check_oneof()` is the `ParameterValue` / `Expression`
+check of one node alone (the Python binding runs it on every node it converts).
 
 `MAX_EXPRESSION_DEPTH` (32) is the deepest expression tree the parsers build, counted
 in nodes from the root to the deepest leaf. A tree that deep, held where the IR nests
