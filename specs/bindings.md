@@ -20,6 +20,8 @@ The `oxymorph` Python module (`decisions/0008`).
 - **Expressions and paths.** `parse_expression`, `format_expression`,
   `posix_file`, `is_absolute` and `resolve_file`.
 - **Errors.** Parse, write and serialization failures raise `ValueError`.
+- **Typing.** The wheel ships `oxymorph/__init__.pyi` (from the root `oxymorph.pyi`) and `py.typed`. The stub
+  types every name as `Any`: type checkers resolve the API but do not check calls into it.
 - **Checks.** CI (`.github/workflows/ci.yml`, job `python`) runs `cargo fmt --check`
   and `cargo clippy -D warnings` on `crates/oxymorph-python`, then the
   `just test-python` commands (`uv sync --reinstall-package oxymorph`,
