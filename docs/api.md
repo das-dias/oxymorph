@@ -167,4 +167,4 @@ POSIX, with `.` and `..` resolved lexically.
 ## Tests
 
 `just test-python` builds the package with uv and maturin and runs
-`crates/oxymorph-python/tests`.
+`crates/oxymorph-python/tests` with the standard library's `unittest`.

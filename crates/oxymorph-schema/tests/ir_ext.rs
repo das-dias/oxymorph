@@ -2,9 +2,7 @@
 //! kfnetlist `tests/morphnet/test_circuit_models.py` and
 //! `crates/kfnetlist-schema/tests/schema.rs` (`decisions/0011`).
 
-use oxymorph_schema::proto::wire;
 use oxymorph_schema::*;
-use prost::Message;
 use serde_json::json;
 
 fn number(value: f64) -> ParameterValue {
@@ -287,11 +285,143 @@ fn wire_matches_a_fixed_protobuf_fixture() {
     assert_eq!(circuit.name, "demo");
     assert_eq!(circuit.top_module, "top");
     assert_eq!(circuit.to_proto_bytes(), bytes);
-    let pin = wire::TerminalReference {
-        instance_name: "a".into(),
-        terminal_name: "p".into(),
+
+    // modules (10) > connections (50) > source (10): TerminalReference {a, p}; then an
+    // unknown varint field 99 and an unknown fixed32 field 98, which are skipped.
+    let bytes = [
+        &[0x52, 11, 0x92, 0x03, 8, 0x52, 6][..],
+        b"\x0a\x01a\x12\x01p",
+        &[0x98, 0x06, 1, 0x95, 0x06, 0, 0, 0, 0],
+    ]
+    .concat();
+    let circuit = Circuit::from_proto_bytes(&bytes).unwrap();
+    let source = circuit.modules[0].connections[0].source.as_ref().unwrap();
+    assert_eq!(
+        (source.instance_name.as_str(), source.port_name.as_str()),
+        ("a", "p")
+    );
+    assert_eq!(circuit.to_proto_bytes(), bytes[..13]);
+
+    // simulation (40) > temperatures (6): packed (as written) or one field per value
+    let (one, two) = (1.0f64.to_le_bytes(), 2.0f64.to_le_bytes());
+    let packed = [&[0xc2, 0x02, 18, 0x32, 16][..], &one, &two].concat();
+    let unpacked = [&[0xc2, 0x02, 18, 0x31][..], &one, &[0x31], &two].concat();
+    for bytes in [&packed, &unpacked] {
+        let circuit = Circuit::from_proto_bytes(bytes).unwrap();
+        assert_eq!(
+            circuit.simulation.as_ref().unwrap().temperatures,
+            [1.0, 2.0]
+        );
+        assert_eq!(circuit.to_proto_bytes(), packed);
+    }
+}
+
+fn library_circuit() -> Circuit {
+    let library = |path: &str, models: &[&str]| ExternalLibrary {
+        path: path.into(),
+        model_type: "bsim4".into(),
+        external_model_names: models.iter().map(|model| model.to_string()).collect(),
     };
-    assert_eq!(pin.encode_to_vec(), b"\x0a\x01a\x12\x01p");
+    let model = |name: &str, group: &str| ExternalModule {
+        name: name.into(),
+        library_name: "sky130".into(),
+        group_name: group.into(),
+        kind: ExternalModuleKind::Model,
+        ..Default::default()
+    };
+    Circuit {
+        name: "corners".into(),
+        // out of key order: the index keeps the IR's order through the wire
+        libraries: [
+            (
+                "sky130".to_string(),
+                library("models.lib", &["nfet", "pfet"]),
+            ),
+            ("analog".to_string(), library("analog.lib", &[])),
+        ]
+        .into_iter()
+        .collect(),
+        ext_modules: vec![model("nfet", "tt"), model("nfet", "ff")],
+        directives: vec![Directive {
+            kind: DirectiveKind::Lib,
+            name: String::new(),
+            value: "models.lib tt".into(),
+        }],
+        ..Default::default()
+    }
+}
+
+#[test]
+fn model_library_and_corner_round_trip() {
+    let circuit = library_circuit();
+    let back = Circuit::from_proto_bytes(&circuit.to_proto_bytes()).unwrap();
+    assert_eq!(back, circuit);
+    assert!(back.libraries.keys().eq(["sky130", "analog"]));
+
+    // libraries (45): {"zz": ExternalLibrary {path (2) "z.lib", external_model_names (4) ["n"]}};
+    // ext_modules (20): {name (1) "nch", library_name (4) "zz", group_name (5) "tt"}
+    let bytes = [
+        &[0xa2, 0x01, 13][..],
+        b"\x0a\x03nch\x22\x02zz\x2a\x02tt",
+        &[0xea, 0x02, 16],
+        b"\x0a\x02zz\x12\x0a\x12\x05z.lib\x22\x01n",
+    ]
+    .concat();
+    let circuit = Circuit::from_proto_bytes(&bytes).unwrap();
+    let (name, library) = circuit.libraries.first().unwrap();
+    assert_eq!((name.as_str(), library.path.as_str()), ("zz", "z.lib"));
+    assert_eq!(library.external_model_names, ["n"]);
+    let model = &circuit.ext_modules[0];
+    assert_eq!(
+        (
+            model.name.as_str(),
+            model.library_name.as_str(),
+            model.group_name.as_str()
+        ),
+        ("nch", "zz", "tt")
+    );
+    assert_eq!(circuit.to_proto_bytes(), bytes);
+}
+
+#[test]
+fn hostile_protobuf_is_an_error_not_a_panic() {
+    let mut circuit = library_circuit();
+    circuit.simulation = Some(Simulation {
+        temperatures: vec![27.0],
+        ..Default::default()
+    });
+    let bytes = circuit.to_proto_bytes();
+    for end in 0..bytes.len() {
+        let _ = Circuit::from_proto_bytes(&bytes[..end]);
+    }
+    // a 10-byte varint key that overflows the field number; a length past the end
+    assert!(Circuit::from_proto_bytes(&[0xff; 10]).is_err());
+    assert!(Circuit::from_proto_bytes(&[0x0a, 0x7f, b'x']).is_err());
+
+    // each unary level is two messages (Expression, UnaryOp): 60 levels pass 100
+    let mut expression = raw("x");
+    for _ in 0..60 {
+        expression = Expression {
+            unary: Some(UnaryOp {
+                op: Operator::Neg,
+                operand: boxed(expression),
+            }),
+            ..Default::default()
+        };
+    }
+    let deep = circuit_with_module(Module {
+        name: "top".into(),
+        parameters: vec![parameter_with(
+            "p",
+            ParameterValue {
+                expression: Some(expression),
+                ..Default::default()
+            },
+        )],
+        ..Default::default()
+    });
+    let error = Circuit::from_proto_bytes(&deep.to_proto_bytes()).unwrap_err();
+    assert!(error.contains("recursion limit"), "{error}");
 }
 
 #[test]

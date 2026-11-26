@@ -26,8 +26,20 @@ grammar's keyword boundaries are compiled as ASCII ones (`(?-u:\b)`); the gramma
 file itself stays verbatim.
 
 The grammars are verbatim from kfnetlist `f020af6` (SPICE, HSPICE and Xyce accept a numeric node name in a
-`.subckt` port list: `port_decl: IDENT | SI_NUMBER`); `grammars_match_kfnetlist`
-(`tests/grammar_provenance.rs`) pins each file's SHA-256 to that revision.
+`.subckt` port list: `port_decl: IDENT | SI_NUMBER`), each from
+`src/kfnetlist/morphnet/netlist/grammars/<name>.lark` at that revision. To check them,
+run `shasum -a 256 crates/oxymorph-netlist/grammars/*.lark` and compare:
+
+| Grammar | SHA-256 at kfnetlist `f020af6` |
+|---|---|
+| `common` | `b53486a4931ca72e8be998409eb17a4434200b77ac2bc5f0833ecc37e0857f3e` |
+| `expression` | `6ef37b7b1c6785c31d2b8da3ee1d467fd4d91f6ce01d46d2cccb82717535cb6a` |
+| `hspice` | `06a3a9fc34626d18ea4f4498f35b1cab9d4dd9180120e7e23401980197499fa1` |
+| `spectre` | `6a6d3e9abe27c9bcd8ff7a842e4801900160f074a182ceed57aa36d3e2edf4c1` |
+| `spice` | `44ee30a69d720a3fce53bd8c4b0cbe61be93fa8c1112d3ee5d38993bc08e4b3e` |
+| `systemverilog` | `1367fd1b67a81cfc7ca5d8aebf16f40637fdbec470cb94264c322aed675006b3` |
+| `vams` | `828530f8692b9ff65a957eb007fe35bbb9679d54d95b9acfd582c70b491fa61d` |
+| `xyce` | `bce1551884e181f28b8d360e5d8f87452f691bbfac1f2d60882b825a868cc94d` |
 
 ## R2. Preprocessing
 

@@ -22,8 +22,9 @@ The `oxymorph` Python module (`decisions/0008`).
 - **Errors.** Parse, write and serialization failures raise `ValueError`.
 - **Checks.** CI (`.github/workflows/ci.yml`, job `python`) runs `cargo fmt --check`
   and `cargo clippy -D warnings` on `crates/oxymorph-python`, then the
-  `just test-python` commands (`uv sync --group test --reinstall-package oxymorph`,
-  `pytest crates/oxymorph-python/tests`). `release.yml` installs each wheel its
+  `just test-python` commands (`uv sync --reinstall-package oxymorph`,
+  `python -m unittest discover -s crates/oxymorph-python/tests`). The tests use the
+  standard library only; the deepdiff test runs only where deepdiff is installed. `release.yml` installs each wheel its
   runner can load (all but musllinux and macOS x86_64) and imports it before the
   publish job may run.
 

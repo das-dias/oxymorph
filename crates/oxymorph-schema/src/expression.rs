@@ -18,7 +18,7 @@ use crate::{PrefixedValue, Siprefix};
 /// costliest node and a literal the costliest leaf:
 /// - JSON and YAML read at most 127 nested levels. The expression object is level 12; a
 ///   call takes 3 levels (`{"call": {"args": [`), a literal leaf 2: 11 + 3 × 31 + 2 = 106.
-/// - protobuf (prost) reads at most 100 nested messages. The expression is message 8; a
+/// - protobuf reads at most 100 nested messages (`proto::MAX_MESSAGE_DEPTH`). The expression is message 8; a
 ///   call takes 2 messages, a literal leaf 2: 7 + 2 × 31 + 2 = 71.
 /// - The Python binding's converter walks at most `MAX_NESTING` (128) attribute and item
 ///   steps; it asserts at compile time that a tree this deep fits.

@@ -6,13 +6,24 @@ Run with `just test-python`.
 import copy
 import hashlib
 import importlib.machinery
+import importlib.util
 import inspect
 import json
 import pickle
+import unittest
 from pathlib import Path
 
 import oxymorph
-import pytest
+
+_case = unittest.TestCase()
+
+
+def raises(exception, match=None):
+    """`assertRaises`, or `assertRaisesRegex` (a `re.search`) when `match` is given."""
+    if match is None:
+        return _case.assertRaises(exception)
+    return _case.assertRaisesRegex(exception, match)
+
 
 KF_DATA = Path(__file__).resolve().parents[2] / "oxymorph-netlist" / "tests" / "data" / "kf"
 
@@ -100,9 +111,9 @@ def test_connect_chains_pairs():
     ]
     assert pairs == [(endpoint_a, endpoint_b), (endpoint_b, endpoint_c)]
     assert {connection.name for connection in module.connections} == {"VDD"}
-    with pytest.raises(ValueError, match="need ≥ 2 endpoints, got 1"):
+    with raises(ValueError, match="need ≥ 2 endpoints, got 1"):
         module.connect("VDD", endpoint_a)
-    with pytest.raises(ValueError, match="got 0"):
+    with raises(ValueError, match="got 0"):
         module.connect("VDD")
     assert len(module.connections) == 2
 
@@ -137,8 +148,10 @@ def test_to_json_is_stable_for_hashing():
     assert first.to_json() != second.to_json()
 
 
+@unittest.skipUnless(importlib.util.find_spec("deepdiff"), "deepdiff is not installed")
 def test_deephash_is_stable():
-    deepdiff = pytest.importorskip("deepdiff")
+    import deepdiff
+
     first, second = build_two_terminal_circuit(), build_two_terminal_circuit()
     first_hash = deepdiff.DeepHash(first)[first]
     assert first_hash == deepdiff.DeepHash(second)[second]
@@ -154,26 +167,26 @@ def test_deephash_is_stable():
 def test_type_error_names_the_path():
     circuit = build_two_terminal_circuit()
     circuit.modules[0].module_references.append("R9")
-    with pytest.raises(TypeError, match=r"modules\[0\]\.module_references\[1\]: expected ModuleReference, got str"):
+    with raises(TypeError, match=r"modules\[0\]\.module_references\[1\]: expected ModuleReference, got str"):
         oxymorph.write_spice(circuit)
     circuit = build_two_terminal_circuit()
     circuit.properties["count"] = 3
-    with pytest.raises(TypeError, match=r"properties\['count'\]: expected str, got int"):
+    with raises(TypeError, match=r"properties\['count'\]: expected str, got int"):
         circuit.to_json()
 
 
 def test_cycle_is_a_value_error():
     expression = oxymorph.Expression()
     expression.unary = oxymorph.UnaryOp(op=oxymorph.Operator.NEG, operand=expression)
-    with pytest.raises(ValueError, match="nested deeper than 128"):
+    with raises(ValueError, match="nested deeper than 128"):
         oxymorph.format_expression(expression, "spectre")
     circuit = build_two_terminal_circuit()
     value = oxymorph.ParameterValue(model_ref=oxymorph.ModelReference(model_interface_name="m"))
     value.model_ref.arguments["self"] = value
     circuit.modules[0].module_references[0].parameters.append(oxymorph.parameter("loop", default_value=value))
-    with pytest.raises(ValueError, match=r"^modules\[0\]\.module_references\[0\]\.parameters\[1\]\.default_value"):
+    with raises(ValueError, match=r"^modules\[0\]\.module_references\[0\]\.parameters\[1\]\.default_value"):
         oxymorph.write_spice(circuit)
-    with pytest.raises(ValueError):
+    with raises(ValueError):
         circuit.to_json()
 
 
@@ -224,13 +237,13 @@ def test_oneof_is_checked_on_write():
     circuit.modules[0].module_references[0].parameters.append(oxymorph.parameter("r", default_value=both))
     path = r"^modules\[0\]\.module_references\[0\]\.parameters\[1\]\.default_value: ParameterValue is a oneof"
     for convert in (oxymorph.write_spice, oxymorph.Circuit.to_json, copy.deepcopy):
-        with pytest.raises(ValueError, match=path):
+        with raises(ValueError, match=path):
             convert(circuit)
     circuit = build_two_terminal_circuit()
     node = oxymorph.Expression(reference="a", raw="a")
     value = oxymorph.ParameterValue(expression=oxymorph.Expression(unary=oxymorph.UnaryOp(op=oxymorph.Operator.NEG, operand=node)))
     circuit.modules[0].module_references[0].parameters.append(oxymorph.parameter("w", default_value=value))
-    with pytest.raises(ValueError, match=r"default_value\.expression\.unary\.operand: Expression is a oneof"):
+    with raises(ValueError, match=r"default_value\.expression\.unary\.operand: Expression is a oneof"):
         oxymorph.write_spice(circuit)
 
 
@@ -284,7 +297,7 @@ def test_list_attribute_reassignment_is_written():
     assert circuit.ext_modules[0].properties == {"spice_prefix": "R", "extra": "1"}
     top.module_references[0].properties.update(net="gnd")
     assert json.loads(circuit.to_json())["modules"][0]["module_references"][0]["properties"] == {"net": "gnd"}
-    with pytest.raises(TypeError):
+    with raises(TypeError):
         top.connections = 3
 
 
@@ -309,9 +322,9 @@ def test_every_ir_field_round_trips():
 
 
 def test_unknown_ir_field_is_rejected():
-    with pytest.raises(TypeError, match="colour"):
+    with raises(TypeError, match="colour"):
         oxymorph.Circuit(name="x", colour="red")
-    with pytest.raises(AttributeError):
+    with raises(AttributeError):
         oxymorph.Circuit(name="x").colour = "red"
 
 
@@ -337,7 +350,7 @@ def test_object_model_is_native():
         assert inspect.ismethoddescriptor(model_class.__dict__.get("__deepcopy__")), class_name
         assert model_class.__module__ == "oxymorph", class_name
     assert oxymorph.oxymorph.__file__.endswith(tuple(importlib.machinery.EXTENSION_SUFFIXES))
-    with pytest.raises(TypeError):
+    with raises(TypeError):
         hash(oxymorph.port("p"))
     assert repr(oxymorph.port("p", domain=1)) == "Port(name='p', domain=SignalDomain.ELECTRICAL)"
 
@@ -570,7 +583,7 @@ def test_gsch_parse_read_write():
     assert json.loads(oxymorph.write_gsch(circuit))
     read = oxymorph.read_gsch(gsch_dir / "ihp_hier_top.gsch", project_root=gsch_dir, models=models, corners=["mos_tt"])
     assert len(read.modules) >= 1
-    with pytest.raises(ValueError):
+    with raises(ValueError):
         oxymorph.parse_gsch(text, sim="no-such-simulator")
 
 
@@ -586,7 +599,7 @@ def test_expressions():
     raw = oxymorph.Expression(raw="foo bar")
     assert oxymorph.format_expression(raw, "ngspice", named=True) == "{foo bar}"
     assert oxymorph.format_expression(raw, "ngspice") == "foo bar"
-    with pytest.raises(ValueError):
+    with raises(ValueError):
         oxymorph.format_expression(expression, "no-such-dialect")
 
 
@@ -601,5 +614,17 @@ def test_paths():
 
 
 def test_parse_errors_are_value_errors():
-    with pytest.raises(ValueError):
+    with raises(ValueError):
         oxymorph.parse_vams("module (;")
+
+
+class Tests(unittest.TestCase):
+    """Collects the `test_*` functions above for `python -m unittest`."""
+
+
+for _name in [name for name in globals() if name.startswith("test_")]:
+    setattr(Tests, _name, staticmethod(globals()[_name]))
+
+
+if __name__ == "__main__":
+    unittest.main()

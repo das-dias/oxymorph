@@ -66,14 +66,28 @@ is written, and fails only where a reader's own limit is reached.
 
 ## R4. Protobuf
 
-Implemented (`decisions/0010`). The protos live in `crates/oxymorph-schema/proto/`
-(`circuit.proto`, `simulation.proto`, `value.proto`): kfnetlist's, with message
-and field names mapped back to oxymorph's and kfnetlist's field numbers
-(`decisions/0011`). They are upstream's plus fields, so the vendored
-`vendor/morphnet/protos/` stay the reference for the original corpus. They are
-compiled with `prost-build`; `Circuit::to_proto_bytes()` and
-`Circuit::from_proto_bytes()` round-trip through the wire format, mapping field
-renames, the `ParameterValue` and `Expression` oneofs, and the enums.
+Implemented (`decisions/0010`). Like the IR (`decisions/0006`), the wire schema is
+hand-written Rust: `crates/oxymorph-schema/src/proto.rs` encodes each IR type to the
+wire format and decodes it back, naming every field number. No `.proto` is compiled
+and the crate has no protobuf dependency. The field numbers are upstream's
+(`vendor/morphnet/protos/`, the reference for the original corpus) plus the fields
+kfnetlist added (`decisions/0011`). Wire names that differ from the IR's are mapped
+there (`ports` are `terminals`, `port_name` is `terminal_name`), as are the
+`ParameterValue` and `Expression` oneofs and the enums.
+
+`Circuit::to_proto_bytes()` writes fields in field-number order and leaves default
+scalars out; maps are written in the IR's order and read back in wire order.
+`Circuit::from_proto_bytes()` skips unknown fields, accepts `temperatures` packed or
+not, keeps the last value of a repeated singular field and the last member of a
+oneof, and returns an error, never a panic, for malformed input or nesting deeper
+than `proto::MAX_MESSAGE_DEPTH` (100) messages or map entries.
+
+Model libraries go through the wire with their index intact: `Circuit.libraries`
+(45, `map<string, ExternalLibrary>`: `path` 2, `model_type` 3,
+`external_model_names` 4) and, per external module, `library_name` (4) and
+`group_name` (5), the group within the library, usually the corner. A corner chosen
+when parsing (`.lib path section`, gsch `corners`) is a `LIB` `Directive`.
+
 `from_proto_bytes(upstream.to_proto_bytes())` equals the parsed IR for the whole
 corpus (message-equality).
 

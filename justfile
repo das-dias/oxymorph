@@ -4,5 +4,5 @@ init:
 
 # build the Python package (release, via uv + maturin) and run its tests
 test-python *args:
-  uv sync --group test --reinstall-package oxymorph
-  uv run --no-sync pytest crates/oxymorph-python/tests {{args}}
+  uv sync --reinstall-package oxymorph
+  uv run --no-sync python -m unittest discover -s crates/oxymorph-python/tests -v {{args}}

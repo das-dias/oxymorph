@@ -18,9 +18,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - uses: arduino/setup-protoc@v3
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
@@ -34,9 +31,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
-      - uses: arduino/setup-protoc@v3
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - run: cargo build --manifest-path crates/oxymorph-wasm/Cargo.toml --target wasm32-unknown-unknown --release
 
   features:
@@ -47,9 +41,6 @@ jobs:
           submodules: recursive
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
-      - uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Build each format feature alone
         run: |
           for feature in spice hspice xyce spectre spectre_spice vams systemverilog gsch; do
@@ -66,9 +57,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
           components: rustfmt, clippy
-      - uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
@@ -79,5 +67,5 @@ jobs:
       - run: cargo clippy --manifest-path crates/oxymorph-python/Cargo.toml -- -D warnings
       - name: just test-python
         run: |
-          uv sync --group test --reinstall-package oxymorph
-          uv run --no-sync pytest crates/oxymorph-python/tests
+          uv sync --reinstall-package oxymorph
+          uv run --no-sync python -m unittest discover -s crates/oxymorph-python/tests -v
