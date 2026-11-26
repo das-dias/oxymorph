@@ -15,29 +15,35 @@ The `oxymorph` Python module (`decisions/0008`).
   oxymorph names.
 - **Chaining.** `Circuit.add`, `add_ext` and `add_library`, and `Module.add_terminal`,
   `add` and `connect`, return `self`. `Circuit.add` sets `top_module` to the first
-  module added when it is unset. `connect` chains its endpoints pairwise and needs
-  at least two.
+  module added when it is unset. `connect` chains its endpoints pairwise. A lone
+  endpoint connects to itself, and no endpoint at all is a `ValueError`.
 - **Expressions and paths.** `parse_expression`, `format_expression`,
   `posix_file`, `is_absolute` and `resolve_file`.
 - **Errors.** Parse, write and serialization failures raise `ValueError`.
 
 ## R2. Object model (`decisions/0012`)
 
-- **IR classes.** Every IR type is a Python dataclass with the IR's field names,
-  order and defaults. Every attribute can be read and written. List and dict
-  attributes are plain lists and dicts, and changing them changes what is
-  written.
+- **IR classes.** Every IR type is a native `#[pyclass]` with the IR's field
+  names, order and defaults. The constructors take keywords only. Every attribute
+  can be read and written.
+  - List and dict attributes are live: the getter returns the stored list or
+    dict, so changing it in place changes what is written.
+  - Assigning a list or dict attribute stores a new list or dict from any
+    iterable or mapping.
+  - A nested object is shared, so editing it changes what is written.
 - **Enums.** The enums are `IntEnum`s with the IR's integer values: `SIPrefix`,
   `SignalDomain`, `PortDirection`, `DirectiveKind`, `ExternalModuleKind`,
-  `AnalysisKind`, `OutputRequestKind`, `WaveformKind` and `Operator`.
-- **Equality.** `==` compares the encoded JSON, so it is by value and sensitive
-  to dict order. Objects are unhashable. `copy.deepcopy` and `pickle` work.
-- **Serialization.** `Circuit.to_json()` is the IR's canonical serde JSON. It is
-  deterministic, and equal circuits give equal JSON.
-- **Conversion.** The native module `oxymorph._oxymorph` takes and returns IR
-  JSON and holds no IR logic. The encoder raises `TypeError` with the path of a
-  wrongly typed value. It raises `ValueError` beyond `MAX_NESTING` (128) levels.
-  The decoder rejects unknown fields.
+  `AnalysisKind`, `OutputRequestKind`, `WaveformKind` and `Operator`. An enum
+  attribute reads as the member. Setting it to an int that is no member's value
+  raises `ValueError`.
+- **Equality.** `==` compares the IR values. Objects are unhashable.
+  `copy.copy`, `copy.deepcopy` and `pickle` work.
+- **Serialization.** Every class has `to_json()` and `from_json()`, using the
+  IR's serde JSON. The JSON is deterministic, and equal values give equal JSON.
+- **Conversion.** The graph is converted to the IR at each parse, write,
+  serialization and comparison. A wrongly typed list or dict item raises
+  `TypeError` and names its path. A graph nested deeper than `MAX_NESTING` (128)
+  steps, such as a cycle, raises `ValueError`.
 
 ## R3. Equivalence
 

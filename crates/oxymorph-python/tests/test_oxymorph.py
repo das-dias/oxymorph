@@ -1,13 +1,18 @@
-"""Tests of the `oxymorph` Python package (decisions/0012). Run with `just test-python`."""
+"""Tests of the `oxymorph` Python package: the native `#[pyclass]` object model (decisions/0012).
+
+Run with `just test-python`.
+"""
 
 import copy
+import hashlib
+import importlib.machinery
+import inspect
 import json
 import pickle
 from pathlib import Path
 
-import pytest
-
 import oxymorph
+import pytest
 
 KF_DATA = Path(__file__).resolve().parents[2] / "oxymorph-netlist" / "tests" / "data" / "kf"
 
@@ -95,8 +100,12 @@ def test_connect_chains_pairs():
     ]
     assert pairs == [(endpoint_a, endpoint_b), (endpoint_b, endpoint_c)]
     assert {connection.name for connection in module.connections} == {"VDD"}
+    lone = oxymorph.module("m").connect("GND", endpoint_a)
+    assert [(connection.source.port_name, connection.target.port_name) for connection in lone.connections] == [
+        ("a", "a")
+    ]
     with pytest.raises(ValueError):
-        module.connect("VDD", endpoint_a)
+        module.connect("VDD")
 
 
 def test_enums_have_members():
@@ -154,16 +163,73 @@ def test_type_error_names_the_path():
         circuit.to_json()
 
 
-def test_cycles_raise_value_error():
+def test_cycle_is_a_value_error():
     expression = oxymorph.Expression()
     expression.unary = oxymorph.UnaryOp(op=oxymorph.Operator.NEG, operand=expression)
-    with pytest.raises(ValueError, match="nested deeper than"):
+    with pytest.raises(ValueError, match="nested deeper than 128"):
         oxymorph.format_expression(expression, "spectre")
-
-
-def test_pickle_round_trips():
     circuit = build_two_terminal_circuit()
-    assert pickle.loads(pickle.dumps(circuit)) == circuit
+    value = oxymorph.ParameterValue(model_ref=oxymorph.ModelReference(model_interface_name="m"))
+    value.model_ref.arguments["self"] = value
+    circuit.modules[0].module_references[0].parameters.append(oxymorph.parameter("loop", default_value=value))
+    with pytest.raises(ValueError, match=r"^modules\[0\]\.module_references\[0\]\.parameters\[1\]\.default_value"):
+        oxymorph.write_spice(circuit)
+    with pytest.raises(ValueError):
+        circuit.to_json()
+
+
+def test_pickle_round_trip():
+    circuit = build_two_terminal_circuit()
+    restored = pickle.loads(pickle.dumps(circuit))
+    assert type(restored) is oxymorph.Circuit and restored == circuit
+    assert restored.to_json() == circuit.to_json()
+    port = oxymorph.port("o1", domain=oxymorph.SignalDomain.WAVEGUIDE)
+    assert pickle.loads(pickle.dumps(port)) == port
+    assert pickle.loads(pickle.dumps(oxymorph.SIPrefix.NANO)) is oxymorph.SIPrefix.NANO
+    assert copy.copy(circuit) == circuit and copy.copy(circuit) is not circuit
+
+
+def test_nested_scalar_mutation_persists():
+    width = oxymorph.parameter(
+        "w", default_value=oxymorph.ParameterValue(prefixed_value=oxymorph.PrefixedValue(double_value=1.0))
+    )
+    width.default_value.prefixed_value.double_value = 2
+    width.default_value.prefixed_value.prefix = oxymorph.SIPrefix.MICRO
+    assert width.default_value.prefixed_value.double_value == 2.0
+    assert width.default_value.prefixed_value.prefix is oxymorph.SIPrefix.MICRO
+    circuit = build_two_terminal_circuit()
+    reference = circuit.modules[0].module_references[0]
+    assert reference.parameters[0].default_value is reference.parameters[0].default_value
+    reference.parameters[0].default_value.prefixed_value.double_value = 7
+    reference.properties["net"] = "gnd"
+    assert "R0 vdd_34_0_0 vdd_34_0_1 7" in oxymorph.write_spice(circuit)
+    assert json.loads(circuit.to_json())["modules"][0]["module_references"][0]["properties"] == {"net": "gnd"}
+    assert circuit.modules[0].connections is circuit.modules[0].connections
+    assert circuit.properties is circuit.properties
+
+
+def test_list_attribute_reassignment_is_written():
+    circuit = build_two_terminal_circuit()
+    top = circuit.modules[0]
+    top.connections = (
+        oxymorph.connection(name, (instance, port_name), (instance, port_name))
+        for name, instance, port_name in [("x", "R0", "p"), ("y", "R0", "n")]
+    )
+    assert isinstance(top.connections, list)
+    assert "R0 x y 2" in oxymorph.write_spice(circuit)
+    replacement = [
+        oxymorph.connection("u", ("R0", "p"), ("R0", "p")),
+        oxymorph.connection("v", ("R0", "n"), ("R0", "n")),
+    ]
+    top.connections = replacement
+    replacement.clear()
+    assert "R0 u v 2" in oxymorph.write_spice(circuit)
+    circuit.ext_modules[0].properties = {"spice_prefix": "R", "extra": "1"}.items()
+    assert circuit.ext_modules[0].properties == {"spice_prefix": "R", "extra": "1"}
+    top.module_references[0].properties.update(net="gnd")
+    assert json.loads(circuit.to_json())["modules"][0]["module_references"][0]["properties"] == {"net": "gnd"}
+    with pytest.raises(TypeError):
+        top.connections = 3
 
 
 def test_every_ir_field_round_trips():
@@ -175,8 +241,9 @@ def test_every_ir_field_round_trips():
         for reference in module.module_references
         for parameter in reference.parameters
     )
-    native_json = oxymorph._oxymorph.parse("spice", RICH_SPICE)
-    assert circuit.to_json() == oxymorph._oxymorph.circuit_to_json(native_json, False)
+    data = json.loads(circuit.to_json())
+    assert data["simulation"]["stimuli"] and data["directives"]
+    assert oxymorph.Circuit.from_json(circuit.to_json()).to_json() == circuit.to_json()
     circuit.macros.append(oxymorph.Macro(name="m", language="spice", body=".param r=1", properties={"k": "v"}))
     circuit.modules[0].macros.append(oxymorph.Macro(name="n", language="spectre", body="x"))
     assert oxymorph.Circuit.from_json(circuit.to_json()) == circuit
@@ -186,8 +253,22 @@ def test_every_ir_field_round_trips():
 
 
 def test_unknown_ir_field_is_rejected():
-    with pytest.raises(TypeError, match="unexpected"):
-        oxymorph.Circuit.from_dict({"name": "x", "colour": "red"})
+    with pytest.raises(TypeError, match="colour"):
+        oxymorph.Circuit(name="x", colour="red")
+    with pytest.raises(AttributeError):
+        oxymorph.Circuit(name="x").colour = "red"
+
+
+def test_object_model_is_native():
+    for class_name in ("Circuit", "Module", "ModuleReference", "Connection", "Expression", "Waveform"):
+        model_class = getattr(oxymorph, class_name)
+        assert not hasattr(model_class, "__dataclass_fields__"), class_name
+        assert inspect.ismethoddescriptor(model_class.__dict__.get("__deepcopy__")), class_name
+        assert model_class.__module__ == "oxymorph", class_name
+    assert oxymorph.oxymorph.__file__.endswith(tuple(importlib.machinery.EXTENSION_SUFFIXES))
+    with pytest.raises(TypeError):
+        hash(oxymorph.port("p"))
+    assert repr(oxymorph.port("p", domain=1)) == "Port(name='p', domain=SignalDomain.ELECTRICAL)"
 
 
 # ---------------------------------------------------------------------------
@@ -281,6 +362,101 @@ def test_gflvs_surface():
     assert reparsed.modules and oxymorph.write_spectre(reparsed)
     assert oxymorph.parse_spice("R1 a b 1k\n.end\n").modules
     assert oxymorph.parse_spectre_spice("simulator lang=spice\nR1 a b 1k\n").modules
+
+
+def test_gfpex_flow():
+    """gfpex `netlist_backannotate_extracted_netlist`: a deep copy of the reference, the IN net rewired onto its pins'
+    nodes, the extracted resistors merged into the top module, written as SPICE."""
+    nmos = oxymorph.ext_module("nmos", ports=[oxymorph.port(name) for name in "dgsb"], properties={"spice_prefix": "M"})
+    top = oxymorph.module("load")
+    top.ports.extend([oxymorph.port("IN"), oxymorph.port("OUT"), oxymorph.port("VSS")])
+    top.add(oxymorph.module_reference("M1", "nmos"))
+    top.connect("IN", ("", "IN"), ("M1", "g"))
+    top.connect("OUT", ("M1", "d"), ("", "OUT"))
+    top.connect("VSS", ("M1", "s"), ("M1", "b"), ("", "VSS"))
+    reference = oxymorph.Circuit(name="load", top_module="load").add_ext(nmos).add(top)
+    reference_spice = oxymorph.write_spice(reference)
+
+    annotated = copy.deepcopy(reference)
+    top_module = next(module for module in annotated.modules if module.name == annotated.top_module)
+    top_module.connections = [connection for connection in top_module.connections if connection.name != "IN"]
+    top_module.connect("IN", ("", "IN"), ("", "IN")).connect("M1/g", ("M1", "g"))
+    resistors = oxymorph.module("__top__")
+    for name, node_p, node_n, value in [("RIN_0", "IN", "IN_34_0_0", 1.0), ("RIN_1", "IN_34_0_0", "M1/g", 2.0)]:
+        resistors.add(oxymorph.module_reference(name, "resistor", value=value, properties={"net": "IN"}))
+        resistors.connect(node_p, (name, "p"), (name, "p")).connect(node_n, (name, "n"), (name, "n"))
+    top_module.module_references.extend(resistors.module_references)
+    top_module.connections.extend(resistors.connections)
+    annotated.add_ext(
+        oxymorph.ext_module(
+            "resistor", ports=[oxymorph.port("p"), oxymorph.port("n")], properties={"spice_prefix": "R"}
+        )
+    )
+    annotated.properties.update({"backannotated": "true"})
+
+    assert oxymorph.write_spice(reference) == reference_spice
+    spice = oxymorph.write_spice(annotated).splitlines()
+    assert "M1 OUT M1/g VSS VSS nmos" in spice, spice
+    assert [line for line in spice if line.startswith("R")] == ["RIN_0 IN IN_34_0_0 1", "RIN_1 IN_34_0_0 M1/g 2"]
+    assert annotated != reference and json.loads(annotated.to_json())["properties"] == {"backannotated": "true"}
+
+
+def test_gflvs_flow():
+    """gflvs `netlist_from_layout_to_netlist`: devices as references with unprefixed parameters, nets chained with
+    their domain, a lone terminal with passthrough devices made a port; then a YAML round trip and a stable hash."""
+    devices = [("R0", "resistor", [("width", 0.5)]), ("R1", "resistor", [("width", 0.25)]), ("WG0", "waveguide", [])]
+    nets = [
+        ("vdd", oxymorph.SignalDomain.ELECTRICAL, [("R0", "pin1"), ("R1", "pin1")], False),
+        ("out", oxymorph.SignalDomain.ELECTRICAL, [("R0", "pin2")], True),
+        ("o1", oxymorph.SignalDomain.WAVEGUIDE, [("WG0", "o1"), ("R1", "pin2")], False),
+    ]
+
+    def build_netlist():
+        top = oxymorph.module("top", class_name="top")
+        top.add(
+            *(
+                oxymorph.module_reference(name, class_name, class_name=class_name, parameters=parameters)
+                for name, class_name, parameters in devices
+            )
+        )
+        for net_name, domain, endpoints, has_passthrough in nets:
+            endpoints = list(endpoints)
+            if len(endpoints) == 1 and has_passthrough:
+                top.add_terminal(net_name, domain=domain)
+                endpoints.append(("", net_name))
+            if len(endpoints) > 1:
+                top.connect(net_name, *endpoints, domain=domain)
+        netlist = oxymorph.Circuit(name="top")
+        netlist.add(top)
+        netlist.add_ext(
+            oxymorph.ext_module(
+                "resistor", class_name="resistor", ports=[oxymorph.port("pin1"), oxymorph.port("pin2")]
+            ),
+            oxymorph.ext_module("waveguide", ports=[oxymorph.port("o1", domain=oxymorph.SignalDomain.WAVEGUIDE)]),
+        )
+        return netlist
+
+    netlist = build_netlist()
+    top = netlist.modules[0]
+    assert netlist.top_module == "top"
+    assert [(port.name, port.domain) for port in top.ports] == [("out", oxymorph.SignalDomain.ELECTRICAL)]
+    assert [connection.domain for connection in top.connections] == [1, 1, 2]
+    assert isinstance(top.connections[2].domain, oxymorph.SignalDomain)
+    width = top.module_references[0].parameters[0].default_value.prefixed_value
+    assert (width.double_value, width.prefix) == (0.5, oxymorph.SIPrefix.UNSPECIFIED)
+    width.prefix = oxymorph.SIPrefix.MICRO
+    assert netlist.modules[0].module_references[0].parameters[0].default_value.prefixed_value.prefix == 9
+
+    assert oxymorph.Circuit.from_yaml(netlist.to_yaml()) == netlist
+    assert (
+        hashlib.sha256(netlist.to_json().encode()).hexdigest()
+        == hashlib.sha256(oxymorph.Circuit.from_yaml(netlist.to_yaml()).to_json().encode()).hexdigest()
+    )
+    rebuilt = build_netlist()
+    rebuilt.modules[0].module_references[0].parameters[0].default_value.prefixed_value.prefix = oxymorph.SIPrefix.MICRO
+    assert rebuilt.to_json() == netlist.to_json()
+    rebuilt.modules[0].connections[0].domain = oxymorph.SignalDomain.UNSPECIFIED
+    assert rebuilt.to_json() != netlist.to_json()
 
 
 # ---------------------------------------------------------------------------
