@@ -77,8 +77,8 @@ print(oxymorph.write_vams(circuit))
 
 ## Edit a circuit in place
 
-The IR classes are mutable dataclasses. Lists and dicts are live, so an edit is
-what the writers see:
+The IR classes are mutable. Lists, dicts and nested objects are live, so an edit
+is what the writers see:
 
 ```python
 import copy
@@ -88,7 +88,9 @@ top = edited.modules[0]
 top.module_references.append(oxymorph.module_reference("R0", "resistor", value=2.0))
 top.connect("out", ("R0", "p"), ("", "out"))
 edited.properties["backannotated"] = "true"
+top.module_references[0].parameters[0].default_value.prefixed_value.double_value = 2
 assert edited != circuit
+assert oxymorph.Circuit.from_json(edited.to_json()) == edited
 ```
 
 See the [API reference](api.md) for the whole surface.

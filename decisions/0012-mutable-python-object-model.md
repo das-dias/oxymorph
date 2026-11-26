@@ -15,84 +15,115 @@ wrappers whose getters clone the IR. gfpex and gflvs, which move from
 
 - `module.module_references.extend(...)`, `module.connections = [...]`;
 - `circuit.properties.update(...)` and `circuit.properties[key] = value`;
+- `p.default_value.prefixed_value.double_value = 2`;
 - `copy.deepcopy(circuit)`;
-- content hashing with deepdiff `DeepHash`, or by walking dataclass fields.
+- content hashing with deepdiff `DeepHash`.
 
 With getters that clone, every one of these silently changes a copy. The
 bindings also lack the kfnetlist surface: expressions, macros, stimuli,
 SystemVerilog, `.gsch`, and the path helpers.
 
-The controller recommended a graph of `#[pyclass]` objects that hold `Py<PyList>`
-and `Py<PyDict>`, converted to the IR in a `convert.rs`. That needs, for each of
-about 30 classes:
-
-- a getter and a setter per field;
-- `__eq__`, `__deepcopy__` and `__repr__`;
-- `__reduce__` or `__getstate__` so that DeepHash and pickle can see inside;
-- a conversion in each direction.
-
 ## Decision
 
-**The object model is plain Python. The native module is a JSON bridge to the
-Rust IR.**
+**The object model is a graph of mutable Rust `#[pyclass]` objects, one class per
+IR type, converted to the `oxymorph_schema` IR at each call.** The only schema is
+the Rust IR. No class or field is defined in Python.
 
-- The package `oxymorph` lives in `crates/oxymorph-python/python/oxymorph/`, a
-  maturin mixed project. Its classes are `dataclasses`, one per IR type, with the
-  IR's field names, order and defaults. List and dict fields are real Python
-  `list` and `dict` objects, so `extend`, `append`, item assignment and `update`
-  change what is written.
-- Enums are `enum.IntEnum`, with the IR's integer values. They compare equal to
-  the IR integers and work on Python 3.9 (abi3-py39).
-- The native module `oxymorph._oxymorph` has no classes. Its functions take and
-  return the IR's JSON (`Circuit::to_json` / `from_json`, `decisions/0006`): parse,
-  write, YAML, protobuf, expressions and paths.
-- The conversion happens at the call. A parse or a `from_*` decodes the JSON into
-  dataclasses. A write or a `to_*` encodes the dataclasses to JSON, and Rust reads
-  that JSON back into an `oxymorph_schema::Circuit`. One encoder and one decoder,
-  both in `__init__.py`, drive the conversion from the dataclass type hints.
-- The encoder checks every value against its field's type. A wrong type raises
-  `TypeError` and names the path, e.g.
-  `modules[0].module_references[3]: expected ModuleReference, got str`. The walk is
-  bounded at `MAX_NESTING` (128) levels, the JSON nesting serde_json reads. A deeper graph, or a cycle, raises
-  `ValueError`, not `RecursionError`. serde_json bounds the Rust side.
-- Equality is by value and is order-sensitive. `a == b` compares the encoded JSON
-  text, so dict key order counts, as it does in written netlists. Equal objects
-  therefore give equal `to_json()`, and `to_json()` is deterministic. Objects are
-  unhashable (they are mutable).
-- `copy.deepcopy`, `pickle`, deepdiff `DeepHash` and the gflvs
-  dataclass-walking normalizer work on plain dataclasses with no extra code.
+- **Layout.** The code in `crates/oxymorph-python/src/` is split by concern:
+  - `convert.rs`: the graph ↔ IR conversion, in one place. It also holds the
+    `model!` macro, which declares a class from its IR fields.
+  - `model.rs`: the classes, with the IR's field names, order and defaults;
+  - `enums.rs`: the enums;
+  - `builders.rs`: the `morphnet._api` builders;
+  - `io.rs`: the parse, write, expression and path functions.
 
-This is materially simpler than the `#[pyclass]` graph. It satisfies the same
-tests with one Python module and a Rust module of about 200 lines, instead of
-about 30 classes with hand-written accessors, protocols and conversions. The Rust
-layer is thinner than before: no IR logic, only JSON in and out.
+  The package is pure native (maturin `module-name = "oxymorph"`), with no Python
+  source.
+- **Fields.**
+  - Scalars (`str`, `float`, `int`, optional `str`) are plain Rust fields with
+    `get` and `set`.
+  - Lists and dicts are stored as `Py<PyList>` / `Py<PyDict>`. The getter returns
+    the stored object, so `append`, `extend`, item assignment and `update`
+    persist. The setter takes any iterable or mapping and stores a new list or
+    dict.
+  - A nested object is stored as `Py<T>`. So
+    `p.default_value.prefixed_value.double_value = 2` persists.
+  - An enum field holds the IR enum. It can be set from any int that is a
+    member's value, and it reads back as the member.
+- **Conversion.** `Model::to_ir` walks the graph, and `Model::from_ir` builds a
+  new one. The `model!` macro writes both as struct literals over every field. If
+  a field is added to or removed from the IR, the class does not compile until it
+  follows.
+  - A list or dict item of the wrong type raises `TypeError` and names its path,
+    e.g. `modules[0].module_references[3]: expected ModuleReference, got str`.
+  - The walk is bounded at `MAX_NESTING` (128) steps, the JSON nesting that
+    serde_json reads. A cycle, or deeper nesting, raises `ValueError`, not a
+    stack overflow.
+- **Value semantics go through the IR.**
+  - `==` compares the converted IR values with Rust's `PartialEq`. Dicts compare
+    as maps, as in Python and Pydantic.
+  - `to_json` is the IR's serde JSON, which is deterministic.
+  - `__deepcopy__` converts to the IR and back.
+  - `__reduce__` returns `(cls.from_json, (self.to_json(),))`, so `pickle` and
+    `copy.copy` work.
+  - Every class has `to_json` and `from_json`. `Circuit` also has
+    `to_json_pretty`, `to_yaml` and `from_yaml`, and `to_proto_bytes` and
+    `from_proto_bytes`.
+  - Objects are unhashable, because they are mutable. deepdiff `DeepHash` hashes
+    their attributes.
+- **Enums.** At import, the binding builds `enum.IntEnum` classes from a Rust
+  table of `(name, members)`. Members compare equal to the IR integers. This
+  works with abi3-py39.
+- **Garbage collection.** Each class implements `__traverse__` and `__clear__`,
+  so reference cycles are collected. Examples are an expression that contains
+  itself, or a list that holds its owner.
+- **Builders and chaining.** `Circuit.add`, `Module.connect` and the `module`,
+  `port` and `connection` builders are small Rust functions in the binding.
+  `oxymorph_schema::builder` works on IR values, so it cannot build the graph.
+
+### Considered and rejected
+
+- **Dataclasses over a JSON bridge** (commits `8b6a0aa` and `cec0d8f`). Each IR
+  type was a Python dataclass, and the native module only moved IR JSON in and
+  out. It passed the tests, but **the user rejected it.** The dataclasses are a
+  second schema, and the two must be kept in sync by hand. The user had already
+  chosen "mutable Rust classes" over "Python models over a JSON bridge" to avoid
+  that cost.
+- **Read-only wrappers that clone** (`decisions/0008`). Every in-place edit would
+  silently change a copy.
 
 ## Consequences
 
 Easier:
 
+- There is one schema. A new IR field is one line in `model.rs`, and the
+  compiler points to it.
 - gfpex and gflvs keep their mutation, copying and hashing code.
-- A new IR field is one dataclass line. There is no Rust accessor to add.
+- Parse and write calls do not pay for a JSON encode and decode.
 
 Harder:
 
-- Each parse, write or serialization pays a JSON encode and decode. This is linear,
-  and small next to the parse itself.
-- The Python classes must track the IR by hand. `test_every_ir_field_round_trips`
-  pins them through a full JSON round trip of a parsed corpus deck.
-- An expression nested more than about 60 levels does not cross the bridge, as
-  for `Circuit::from_json` in Rust: serde_json stops at 128 JSON levels.
+- Each write, `to_json` or `==` converts the whole graph. The cost is linear:
+  10 000 references and 30 000 connections take about 20 ms
+  (`crates/oxymorph-python/benches/bench_roundtrip.py`).
+- deepdiff `DeepHash` walks the attributes of every object. On large circuits
+  this is slow: about 6 s for 40 000 objects. Hashing `to_json()` is the fast
+  path.
+- An expression nested deeper than the bound does not convert. The same limit
+  applies to `Circuit::from_json` in Rust.
 
-Owed: the binding tests run with pytest (`just test-python`), separate from
+Owed: the binding tests run with pytest (`just test-python`), separately from
 `cargo test`, which stays Python-free.
 
 ## Verification
 
 - `crates/oxymorph-python/tests/test_oxymorph.py`, run with `just test-python`:
-  - `test_nested_mutation_is_written`;
-  - `test_deepcopy_is_independent`;
-  - `test_equality_by_value`;
-  - `test_to_json_is_stable_for_hashing`;
-  - `test_deephash_is_stable`;
-  - the gfpex-style and gflvs-style consumer tests.
+  - `test_nested_mutation_is_written`, `test_nested_scalar_mutation_persists`
+    and `test_list_attribute_reassignment_is_written`;
+  - `test_type_error_names_the_path` and `test_cycle_is_a_value_error`;
+  - `test_deepcopy_is_independent`, `test_equality_by_value` and
+    `test_pickle_round_trip`;
+  - `test_to_json_is_stable_for_hashing` and `test_deephash_is_stable`;
+  - `test_object_model_is_native`;
+  - `test_gfpex_flow` and `test_gflvs_flow`, plus the `*_surface` consumer tests.
 - `cargo clippy --manifest-path crates/oxymorph-python/Cargo.toml -- -D warnings`.
