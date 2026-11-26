@@ -1,0 +1,358 @@
+"""Tests of the `oxymorph` Python package (decisions/0012). Run with `just test-python`."""
+
+import copy
+import json
+import pickle
+from pathlib import Path
+
+import pytest
+
+import oxymorph
+
+KF_DATA = Path(__file__).resolve().parents[2] / "oxymorph-netlist" / "tests" / "data" / "kf"
+
+RICH_SPICE = """* rich deck
+.include models.lib
+.param w=1u
+.subckt inv a y w=1u
+M1 y a 0 0 nmos W={w*2} L=100n
+.ends
+X1 in out inv
+V1 in 0 DC 0.9 PULSE(0 1.8 1n 10p 10p 1n 2n)
+.tran 1n 100n
+.end
+"""
+
+
+def build_two_terminal_circuit():
+    """gfpex `netlist_build_two_terminal_circuit`: one resistor on two nodes, at the top level."""
+    top = oxymorph.module("__top__")
+    top.add(oxymorph.module_reference("R0", "resistor", value=2.0, properties={"net": "vdd"}))
+    top.connect("vdd_34_0_0", ("R0", "p"), ("R0", "p"))
+    top.connect("vdd_34_0_1", ("R0", "n"), ("R0", "n"))
+    device = oxymorph.ext_module(
+        "resistor", ports=[oxymorph.port("p"), oxymorph.port("n")], properties={"spice_prefix": "R"}
+    )
+    return oxymorph.Circuit(name="vdd_resistance", top_module="__top__").add_ext(device).add(top)
+
+
+# ---------------------------------------------------------------------------
+# Brief tests
+# ---------------------------------------------------------------------------
+
+
+def test_nested_mutation_is_written():
+    circuit = oxymorph.Circuit(name="n", top_module="__top__")
+    circuit.add_ext(oxymorph.ext_module("resistor", ports=[oxymorph.port("p"), oxymorph.port("n")]))
+    circuit.ext_modules[0].properties["spice_prefix"] = "R"
+    circuit.add(oxymorph.module("__top__"))
+    top = circuit.modules[0]
+    top.module_references.append(oxymorph.module_reference("R0", "resistor", value=2))
+    top.connections.extend(
+        [oxymorph.connection("a", ("R0", "p"), ("R0", "p")), oxymorph.connection("b", ("R0", "n"), ("R0", "n"))]
+    )
+    assert "R0 a b 2" in oxymorph.write_spice(circuit)
+
+
+def test_top_module_written_without_subckt():
+    written = oxymorph.write_spice(build_two_terminal_circuit())
+    assert ".subckt" not in written.lower()
+    assert "R0 vdd_34_0_0 vdd_34_0_1 2" in written
+
+
+def test_deepcopy_is_independent():
+    original = build_two_terminal_circuit()
+    copied = copy.deepcopy(original)
+    assert copied == original
+    copied.modules[0].module_references.clear()
+    copied.properties["backannotated"] = "true"
+    assert len(original.modules[0].module_references) == 1
+    assert "backannotated" not in original.properties
+    assert copied != original
+
+
+def test_equality_by_value():
+    assert build_two_terminal_circuit() == build_two_terminal_circuit()
+    assert oxymorph.port("p", domain=1) == oxymorph.port("p", domain=oxymorph.SignalDomain.ELECTRICAL)
+    changed = build_two_terminal_circuit()
+    changed.modules[0].module_references[0].properties["net"] = "gnd"
+    assert changed != build_two_terminal_circuit()
+    assert oxymorph.Circuit.from_yaml(changed.to_yaml()) == changed
+    assert oxymorph.Circuit.from_json(changed.to_json()) == changed
+    assert oxymorph.Circuit.from_proto_bytes(changed.to_proto_bytes()) == changed
+
+
+def test_connect_chains_pairs():
+    module = oxymorph.module("m")
+    endpoint_a, endpoint_b, endpoint_c = ("X1", "a"), ("X2", "b"), ("", "VDD")
+    assert module.connect("VDD", endpoint_a, endpoint_b, endpoint_c) is module
+    pairs = [
+        (
+            (connection.source.instance_name, connection.source.port_name),
+            (connection.target.instance_name, connection.target.port_name),
+        )
+        for connection in module.connections
+    ]
+    assert pairs == [(endpoint_a, endpoint_b), (endpoint_b, endpoint_c)]
+    assert {connection.name for connection in module.connections} == {"VDD"}
+    with pytest.raises(ValueError):
+        module.connect("VDD", endpoint_a)
+
+
+def test_enums_have_members():
+    assert oxymorph.SIPrefix.MICRO == 9
+    assert oxymorph.SignalDomain.WAVEGUIDE == 2
+    assert oxymorph.PortDirection.INPUT == 1
+    assert [member.name for member in oxymorph.SIPrefix][:2] == ["UNSPECIFIED", "QUECTO"]
+    assert oxymorph.SIPrefix.QUETTA == 24
+    assert len(oxymorph.SIPrefix) == 25 and oxymorph.SIPrefix.RONNA == 23
+    assert [member.name for member in oxymorph.SignalDomain] == ["UNSPECIFIED", "ELECTRICAL", "WAVEGUIDE"]
+    for enum_class in (
+        oxymorph.DirectiveKind,
+        oxymorph.ExternalModuleKind,
+        oxymorph.AnalysisKind,
+        oxymorph.OutputRequestKind,
+        oxymorph.WaveformKind,
+        oxymorph.Operator,
+    ):
+        assert enum_class(0).name == "UNSPECIFIED"
+    parsed = oxymorph.parse_spice(".subckt cell a\n.ends\n")
+    assert parsed.modules[0].ports[0].direction is oxymorph.PortDirection.INOUT
+
+
+def test_to_json_is_stable_for_hashing():
+    first, second = build_two_terminal_circuit(), build_two_terminal_circuit()
+    assert first.to_json() == second.to_json()
+    assert first.to_json() == first.to_json()
+    assert json.loads(first.to_json())["top_module"] == "__top__"
+    second.modules[0].module_references[0].parameters[0].default_value.prefixed_value.double_value = 3.0
+    assert first.to_json() != second.to_json()
+
+
+def test_deephash_is_stable():
+    deepdiff = pytest.importorskip("deepdiff")
+    first, second = build_two_terminal_circuit(), build_two_terminal_circuit()
+    first_hash = deepdiff.DeepHash(first)[first]
+    assert first_hash == deepdiff.DeepHash(second)[second]
+    second.modules[0].module_references[0].properties["net"] = "gnd"
+    assert first_hash != deepdiff.DeepHash(second)[second]
+
+
+# ---------------------------------------------------------------------------
+# Object model
+# ---------------------------------------------------------------------------
+
+
+def test_type_error_names_the_path():
+    circuit = build_two_terminal_circuit()
+    circuit.modules[0].module_references.append("R9")
+    with pytest.raises(TypeError, match=r"modules\[0\]\.module_references\[1\]: expected ModuleReference, got str"):
+        oxymorph.write_spice(circuit)
+    circuit = build_two_terminal_circuit()
+    circuit.properties["count"] = 3
+    with pytest.raises(TypeError, match=r"properties\['count'\]: expected str, got int"):
+        circuit.to_json()
+
+
+def test_cycles_raise_value_error():
+    expression = oxymorph.Expression()
+    expression.unary = oxymorph.UnaryOp(op=oxymorph.Operator.NEG, operand=expression)
+    with pytest.raises(ValueError, match="nested deeper than"):
+        oxymorph.format_expression(expression, "spectre")
+
+
+def test_pickle_round_trips():
+    circuit = build_two_terminal_circuit()
+    assert pickle.loads(pickle.dumps(circuit)) == circuit
+
+
+def test_every_ir_field_round_trips():
+    circuit = oxymorph.parse_spice(RICH_SPICE)
+    assert circuit.simulation.stimuli and circuit.directives and circuit.simulation.analyses
+    assert any(
+        parameter.default_value is not None and parameter.default_value.expression is not None
+        for module in circuit.modules
+        for reference in module.module_references
+        for parameter in reference.parameters
+    )
+    native_json = oxymorph._oxymorph.parse("spice", RICH_SPICE)
+    assert circuit.to_json() == oxymorph._oxymorph.circuit_to_json(native_json, False)
+    circuit.macros.append(oxymorph.Macro(name="m", language="spice", body=".param r=1", properties={"k": "v"}))
+    circuit.modules[0].macros.append(oxymorph.Macro(name="n", language="spectre", body="x"))
+    assert oxymorph.Circuit.from_json(circuit.to_json()) == circuit
+    assert json.loads(circuit.to_json())["macros"][0]["body"] == ".param r=1"
+    for name in oxymorph.__all__:
+        assert hasattr(oxymorph, name), name
+
+
+def test_unknown_ir_field_is_rejected():
+    with pytest.raises(TypeError, match="unexpected"):
+        oxymorph.Circuit.from_dict({"name": "x", "colour": "red"})
+
+
+# ---------------------------------------------------------------------------
+# Consumer surfaces
+# ---------------------------------------------------------------------------
+
+
+def test_gfpex_surface():
+    reference = oxymorph.Circuit(name="load", top_module="load")
+    nmos = oxymorph.ext_module("nmos", ports=[oxymorph.port(name) for name in "dgsb"], properties={"spice_prefix": "M"})
+    top = oxymorph.module("load")
+    top.ports.extend([oxymorph.port("IN"), oxymorph.port("OUT")])
+    top.ports.append(oxymorph.port("VSS"))
+    top.add(oxymorph.module_reference("M1", "nmos")).add(oxymorph.module_reference("M2", "nmos"))
+    top.connect("IN", ("", "IN"), ("M1", "g"))
+    top.connect("OUT", ("M1", "d"), ("M2", "g"), ("", "OUT"))
+    top.connect("VSS", ("M1", "s"), ("M1", "b"), ("M2", "s"), ("M2", "b"), ("M2", "d"), ("", "VSS"))
+    assert reference.add_ext(nmos).add(top) is reference
+
+    netlist = copy.deepcopy(reference)
+    top_module = next(module for module in netlist.modules if module.name == netlist.top_module)
+    parasitic = build_two_terminal_circuit()
+    top_module.module_references.extend(parasitic.modules[0].module_references)
+    top_module.connections.extend(parasitic.modules[0].connections)
+    existing = {ext_module.name for ext_module in netlist.ext_modules}
+    for ext_module in parasitic.ext_modules:
+        if ext_module.name not in existing:
+            netlist.add_ext(ext_module)
+    endpoints = {
+        (port_reference.instance_name, port_reference.port_name)
+        for connection in top_module.connections
+        if connection.name == "OUT"
+        for port_reference in (connection.source, connection.target)
+        if port_reference is not None
+    }
+    assert ("", "OUT") in endpoints and ("M1", "d") in endpoints
+    top_module.connections = [connection for connection in top_module.connections if connection.name != "OUT"]
+    top_module.connect("OUT", ("M1", "d"), ("M1", "d"))
+    netlist.properties.update({"backannotated": "true"})
+    netlist.properties["unmatched_terminals"] = "OUT:I0/M3/d"
+
+    extracted = [reference for reference in netlist.modules[0].module_references if reference.properties.get("net")]
+    assert [reference.name for reference in extracted] == ["R0"]
+    written = oxymorph.write_spice(netlist)
+    assert "R0 vdd_34_0_0 vdd_34_0_1 2" in written
+    assert "M1 OUT" in written
+    assert len(reference.modules[0].module_references) == 2
+
+
+def test_gflvs_surface():
+    nano = oxymorph.SIPrefix.NANO
+
+    def width(value, prefix=oxymorph.SIPrefix.UNSPECIFIED):
+        return oxymorph.parameter(
+            "width",
+            default_value=oxymorph.ParameterValue(
+                prefixed_value=oxymorph.PrefixedValue(double_value=value, prefix=prefix)
+            ),
+        )
+
+    top = oxymorph.module("top", class_name="top")
+    top.add(
+        oxymorph.module_reference("r0", "resistor", class_name="resistor", parameters=[width(500, nano)]),
+        oxymorph.module_reference("r1", "resistor", parameters=[("width", 0.5)], properties={"k": "v"}),
+    )
+    assert top.add_terminal("out", domain=oxymorph.SignalDomain.WAVEGUIDE) is top
+    top.connect("vdd", ("r0", "pin1"), ("r1", "pin1"), domain=oxymorph.SignalDomain.ELECTRICAL)
+    netlist = oxymorph.Circuit(name="reference")
+    netlist.add(top)
+    assert netlist.top_module == "top"
+    netlist.add_ext(
+        oxymorph.ext_module(
+            "resistor",
+            class_name="resistor",
+            ports=[oxymorph.port("pin1", domain=oxymorph.SignalDomain.ELECTRICAL)],
+            parameters=[width(0.5)],
+        )
+    )
+    reference = netlist.modules[0].module_references[0]
+    assert reference.module_name == "resistor" and reference.class_name == "resistor"
+    prefixed = reference.parameters[0].default_value.prefixed_value
+    assert (prefixed.double_value, prefixed.prefix) == (500.0, nano)
+    assert top.ports[0].domain == oxymorph.SignalDomain.WAVEGUIDE
+    assert [connection.domain for connection in top.connections] == [oxymorph.SignalDomain.ELECTRICAL]
+    assert oxymorph.Circuit.from_yaml(netlist.to_yaml()) == netlist
+    assert oxymorph.Circuit(name="inverter").to_json() == oxymorph.Circuit(name="inverter").to_json()
+    assert oxymorph.Circuit(name="inverter") != oxymorph.Circuit(name="buffer")
+
+    spectre = oxymorph.write_spectre(netlist)
+    reparsed = oxymorph.parse_spectre(spectre)
+    assert reparsed.modules and oxymorph.write_spectre(reparsed)
+    assert oxymorph.parse_spice("R1 a b 1k\n.end\n").modules
+    assert oxymorph.parse_spectre_spice("simulator lang=spice\nR1 a b 1k\n").modules
+
+
+# ---------------------------------------------------------------------------
+# Parsers, writers, expressions, paths
+# ---------------------------------------------------------------------------
+
+
+def test_every_writer_writes():
+    circuit = oxymorph.parse_spice(RICH_SPICE)
+    for name in ("spice", "hspice", "xyce", "spectre", "spectre_spice", "vams", "systemverilog"):
+        assert getattr(oxymorph, f"write_{name}")(circuit), name
+    assert oxymorph.parse_hspice("R1 a b 1k\n.end\n").modules
+    assert oxymorph.parse_xyce("R1 a b 1k\n.end\n").modules
+
+
+def test_hdl_parsers_take_keywords():
+    text = (KF_DATA / "systemverilog" / "switch_2x2.sv").read_text()
+    default = oxymorph.parse_systemverilog(text)
+    simulated = oxymorph.parse_systemverilog(
+        text, defines={"IS_SIM": "1"}, disciplines={"connection": oxymorph.SignalDomain.WAVEGUIDE}
+    )
+    port_domains = {port.name: port.domain for port in simulated.modules[-1].ports}
+    assert port_domains["in"] == oxymorph.SignalDomain.WAVEGUIDE
+    assert default != simulated
+    assert oxymorph.write_systemverilog(simulated)
+    pinned = oxymorph.parse_systemverilog(text, pin_domains={"MZM_1X2": {"in0": oxymorph.SignalDomain.WAVEGUIDE}})
+    assert pinned.modules
+    vams = (KF_DATA / "vams" / "switch_2x2.vams").read_text()
+    assert oxymorph.parse_vams(vams, defines={}, disciplines={"optical": oxymorph.SignalDomain.WAVEGUIDE}).modules
+    assert oxymorph.parse_vams(vams).modules
+
+
+def test_gsch_parse_read_write():
+    gsch_dir = KF_DATA / "gsch"
+    models = json.loads((gsch_dir / "models.nyanlib").read_text())
+    text = (gsch_dir / "ihp_rc_filter.gsch").read_text()
+    circuit = oxymorph.parse_gsch(text, models=models, sim="ngspice", corners="mos_tt", name="rc")
+    assert circuit.modules[0].name == "rc"
+    assert oxymorph.write_spice(circuit)
+    assert json.loads(oxymorph.write_gsch(circuit))
+    read = oxymorph.read_gsch(gsch_dir / "ihp_hier_top.gsch", project_root=gsch_dir, models=models, corners=["mos_tt"])
+    assert len(read.modules) >= 1
+    with pytest.raises(ValueError):
+        oxymorph.parse_gsch(text, sim="no-such-simulator")
+
+
+def test_expressions():
+    expression = oxymorph.parse_expression("{a*2}")
+    assert isinstance(expression, oxymorph.Expression)
+    assert expression.binary.op == oxymorph.Operator.MUL
+    assert expression.binary.lhs.reference == "a"
+    assert oxymorph.format_expression(expression, "ngspice") == "{a * 2}"
+    assert oxymorph.format_expression(expression, "hspice") == "'a * 2'"
+    assert oxymorph.format_expression(expression, dialect="spectre") == "a * 2"
+    assert oxymorph.parse_expression(oxymorph.format_expression(expression, "xyce")) == expression
+    raw = oxymorph.Expression(raw="foo bar")
+    assert oxymorph.format_expression(raw, "ngspice", named=True) == "{foo bar}"
+    assert oxymorph.format_expression(raw, "ngspice") == "foo bar"
+    with pytest.raises(ValueError):
+        oxymorph.format_expression(expression, "no-such-dialect")
+
+
+def test_paths():
+    assert oxymorph.posix_file("a\\b\\..\\c.txt") == "a/c.txt"
+    assert oxymorph.is_absolute("C:\\models\\x.pwl") and oxymorph.is_absolute("\\\\srv\\share\\x")
+    assert not oxymorph.is_absolute("data/w.txt")
+    assert oxymorph.resolve_file("w.txt", "decks") == "decks/w.txt"
+    assert oxymorph.resolve_file(Path("w.txt"), Path("decks")) == "decks/w.txt"
+    assert oxymorph.resolve_file("/abs/w.txt", "decks") == "/abs/w.txt"
+    assert oxymorph.resolve_file("w.txt") == "w.txt"
+
+
+def test_parse_errors_are_value_errors():
+    with pytest.raises(ValueError):
+        oxymorph.parse_vams("module (;")

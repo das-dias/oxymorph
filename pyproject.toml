@@ -11,5 +11,9 @@ license = { text = "Apache-2.0" }
 
 [tool.maturin]
 manifest-path = "crates/oxymorph-python/Cargo.toml"
-module-name = "oxymorph"
+module-name = "oxymorph._oxymorph"
+python-source = "crates/oxymorph-python/python"
 features = ["pyo3/extension-module"]
+
+[dependency-groups]
+test = ["pytest", "deepdiff"]

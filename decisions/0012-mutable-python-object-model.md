@@ -53,7 +53,7 @@ Rust IR.**
 - The encoder checks every value against its field's type. A wrong type raises
   `TypeError` and names the path, e.g.
   `modules[0].module_references[3]: expected ModuleReference, got str`. The walk is
-  bounded at `MAX_NESTING` (256) levels. A deeper graph, or a cycle, raises
+  bounded at `MAX_NESTING` (128) levels, the JSON nesting serde_json reads. A deeper graph, or a cycle, raises
   `ValueError`, not `RecursionError`. serde_json bounds the Rust side.
 - Equality is by value and is order-sensitive. `a == b` compares the encoded JSON
   text, so dict key order counts, as it does in written netlists. Equal objects
@@ -63,7 +63,7 @@ Rust IR.**
   dataclass-walking normalizer work on plain dataclasses with no extra code.
 
 This is materially simpler than the `#[pyclass]` graph. It satisfies the same
-tests with one Python module and a Rust module of about 150 lines, instead of
+tests with one Python module and a Rust module of about 200 lines, instead of
 about 30 classes with hand-written accessors, protocols and conversions. The Rust
 layer is thinner than before: no IR logic, only JSON in and out.
 
