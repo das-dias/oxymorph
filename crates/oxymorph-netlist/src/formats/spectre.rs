@@ -11,7 +11,7 @@ use crate::expression::{parameter_value, value_text, Dialect};
 use crate::helpers::*;
 use crate::preprocess::preprocess_spectre;
 use crate::stimulus::{
-    add_stimulus, from_spectre, name_stimulus, spectre_keys, spectre_params, stimulus_of,
+    add_stimuli, from_spectre, name_stimulus, spectre_keys, spectre_params, StimulusIndex,
 };
 
 const GRAMMAR: &str = include_str!("../../grammars/spectre.lark");
@@ -696,9 +696,7 @@ impl SpectreTransformer {
             simulation,
             ..Default::default()
         };
-        for stimulus in std::mem::take(&mut self.stimuli) {
-            add_stimulus(&mut circuit, stimulus);
-        }
+        add_stimuli(&mut circuit, std::mem::take(&mut self.stimuli));
         Item::Circuit(circuit)
     }
 }
@@ -767,8 +765,8 @@ const SPICE_BLOCK: (&str, &str) = ("simulator lang=spice", "simulator lang=spect
 struct SpectreStyle<'a> {
     vacask: bool,
     ground: &'a str,
-    /// The circuit being written: its simulation holds the sources' stimuli.
-    circuit: &'a Circuit,
+    /// The stimuli of the circuit being written, which its sources point to.
+    stimuli: StimulusIndex<'a>,
 }
 
 impl SpectreStyle<'_> {
@@ -804,7 +802,7 @@ pub fn write_spectre(circuit: &Circuit) -> String {
             .get("ground_net")
             .map(String::as_str)
             .unwrap_or(""),
-        circuit,
+        stimuli: StimulusIndex::new(circuit),
     };
     if style.vacask && !style.ground.is_empty() {
         lines.push("ground 0".to_string());
@@ -917,10 +915,12 @@ fn write_subckt(module: &Module, lookups: &Lookups, style: &SpectreStyle, lines:
 
 fn instance_lines(module: &Module, lookups: &Lookups, style: &SpectreStyle) -> Vec<String> {
     let inst_nets = connections_to_instance_nets(&module.connections, style.ground);
+    let instance_pins = pins_by_instance(&inst_nets);
     let mut lines = Vec::new();
     for reference in &module.module_references {
         if !is_skipped(reference) {
-            lines.push(write_instance(reference, &inst_nets, lookups, style));
+            let pins = pins_of(&instance_pins, &reference.name);
+            lines.push(write_instance(reference, &inst_nets, pins, lookups, style));
         }
     }
     lines
@@ -930,6 +930,7 @@ fn instance_lines(module: &Module, lookups: &Lookups, style: &SpectreStyle) -> V
 fn write_instance(
     r: &ModuleReference,
     inst_nets: &IndexMap<(String, String), String>,
+    pins: &[&str],
     lookups: &Lookups,
     style: &SpectreStyle,
 ) -> String {
@@ -954,7 +955,7 @@ fn write_instance(
     } else if let Some(template) = complete_template {
         template.iter().map(|pin| pin.to_string()).collect()
     } else {
-        infer_port_order(r, inst_nets)
+        pin_names(pins)
     };
 
     let mut nets = Vec::new();
@@ -992,7 +993,7 @@ fn write_instance(
             param_strs.push(format!("{name}={text}"));
         }
     }
-    if let Some(stimulus) = stimulus_of(style.circuit, r) {
+    if let Some(stimulus) = style.stimuli.of(r) {
         // parity: kf-stimuli
         for (name, text) in spectre_params(stimulus, style.dialect()) {
             param_strs.push(format!("{name}={text}"));
@@ -1023,19 +1024,6 @@ fn has_every_pin(
         }
     }
     true
-}
-
-fn infer_port_order(
-    r: &ModuleReference,
-    inst_nets: &IndexMap<(String, String), String>,
-) -> Vec<String> {
-    let mut port_names: Vec<String> = Vec::new();
-    for (iname, pname) in inst_nets.keys() {
-        if iname == &r.name && !port_names.contains(pname) {
-            port_names.push(pname.clone());
-        }
-    }
-    port_names
 }
 
 fn format_analysis(analysis: &Analysis) -> String {

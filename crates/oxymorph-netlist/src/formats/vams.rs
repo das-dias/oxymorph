@@ -11,8 +11,8 @@ use crate::hdl::*;
 use crate::helpers::*;
 use crate::preprocess::preprocess_vams;
 use crate::stimulus::{
-    add_stimulus, from_primitive, name_stimulus, primitive, primitive_file, stimulus_keys,
-    stimulus_of,
+    add_stimuli, from_primitive, name_stimulus, primitive, primitive_file, stimulus_keys,
+    StimulusIndex,
 };
 
 /// The built-in device modules (`DEVICE_PREFIX_TO_CIRCUIT` values).
@@ -1063,9 +1063,7 @@ impl VamsTransformer<'_> {
             simulation,
             ..Default::default()
         };
-        for stimulus in std::mem::take(&mut self.stimuli) {
-            add_stimulus(&mut circuit, stimulus);
-        }
+        add_stimuli(&mut circuit, std::mem::take(&mut self.stimuli));
         propagate_domains(
             &mut circuit,
             &self.options.disciplines,
@@ -1213,6 +1211,8 @@ fn declaration(keyword: &str, names: &[String], range: Option<Range>) -> String 
 }
 
 pub fn write_vams(circuit: &Circuit) -> String {
+    let masters = master_ports(circuit);
+    let stimuli = StimulusIndex::new(circuit);
     let mut lines: Vec<String> = Vec::new();
 
     write_directives(&circuit.directives, &mut lines);
@@ -1249,7 +1249,7 @@ pub fn write_vams(circuit: &Circuit) -> String {
     }
 
     for module in &circuit.modules {
-        write_module(module, circuit, &mut lines);
+        write_module(module, circuit, &masters, &stimuli, &mut lines);
     }
 
     if lines.last().map(|s| !s.is_empty()).unwrap_or(false) {
@@ -1261,13 +1261,17 @@ pub fn write_vams(circuit: &Circuit) -> String {
 /// `model -> primitive` of the device models instances are called by, so a reader
 /// knows `pch M1 (...)` is a `mosfet` (its pins, its kind).
 fn paramsets(circuit: &Circuit) -> IndexMap<&str, &str> {
+    let mut defined_names = std::collections::HashSet::new();
+    for module in &circuit.modules {
+        defined_names.insert(module.name.as_str());
+    }
     let mut bases = IndexMap::new();
     for module in &circuit.modules {
         for reference in &module.module_references {
             let Some(model) = reference.properties.get("model_name") else {
                 continue;
             };
-            let defined = circuit.modules.iter().any(|defined| &defined.name == model);
+            let defined = defined_names.contains(model.as_str());
             if !model.is_empty() && !defined && PRIMITIVES.contains(&reference.module_name.as_str())
             {
                 bases
@@ -1287,7 +1291,13 @@ fn direction_keyword(direction: PortDirection) -> &'static str {
     }
 }
 
-fn write_module(module: &Module, circuit: &Circuit, lines: &mut Vec<String>) {
+fn write_module(
+    module: &Module,
+    circuit: &Circuit,
+    masters: &MasterPorts,
+    stimuli: &StimulusIndex,
+    lines: &mut Vec<String>,
+) {
     let port_names: Vec<String> = module.ports.iter().map(|p| p.name.clone()).collect();
     let attribute_line = attributes(module, circuit);
     if !attribute_line.is_empty() {
@@ -1418,8 +1428,12 @@ fn write_module(module: &Module, circuit: &Circuit, lines: &mut Vec<String>) {
     }
 
     let inst_nets = connections_to_instance_nets(&module.connections, "");
+    let instance_pins = pins_by_instance(&inst_nets);
     for reference in &module.module_references {
-        lines.push(write_instance(reference, circuit, &inst_nets, &buses));
+        let pins = pins_of(&instance_pins, &reference.name);
+        lines.push(write_instance(
+            reference, stimuli, masters, pins, &inst_nets, &buses,
+        ));
     }
 
     if let Some(analog_block) = module.properties.get("analog_block") {
@@ -1436,7 +1450,9 @@ fn plain_name(name: &str) -> String {
 
 fn write_instance(
     reference: &ModuleReference,
-    circuit: &Circuit,
+    stimuli: &StimulusIndex,
+    masters: &MasterPorts,
+    pins: &[&str],
     inst_nets: &IndexMap<(String, String), String>,
     buses: &Buses,
 ) -> String {
@@ -1457,7 +1473,7 @@ fn write_instance(
         .filter(|model| !model.is_empty())
         .unwrap_or(&reference.module_name)
         .clone();
-    let stimulus = stimulus_of(circuit, reference);
+    let stimulus = stimuli.of(reference);
     if let Some(stimulus) = stimulus {
         let (primitive_master, stimulus_params) =
             primitive(stimulus, reference.module_name == "isource", Dialect::Vams);
@@ -1472,7 +1488,7 @@ fn write_instance(
         format!(" #({})", parts.join(", "))
     };
     // parity: kf-hdl-nets (`bus[m:l]` / `{…}` connections, `.p()` open, `\0 ` escapes)
-    let connections = port_connections(reference, circuit, inst_nets, buses, plain_name);
+    let connections = port_connections(reference, masters, pins, inst_nets, buses, plain_name);
     let attribute = match stimulus.and_then(primitive_file) {
         Some(file) => format!("(* pwl_file = {} *) ", json_string(&file)),
         None => String::new(),

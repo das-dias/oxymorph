@@ -26,7 +26,7 @@ use crate::hdl::propagate_domains;
 use crate::helpers::{
     domain_of, is_si_number, net_map_to_connections, parse_parameter_number, NetMap, PinDomains,
 };
-use crate::stimulus::{add_stimulus, name_stimulus};
+use crate::stimulus::{add_stimuli, name_stimulus, StimulusIndex};
 
 /// Instance stash: `properties["__info__"]` = `{"__gsch__": {"key", "entry"}}`. The `__`
 /// prefix keeps it out of kfnetlist instance equality.
@@ -1005,9 +1005,7 @@ fn parse_document(
         properties,
         ..Default::default()
     };
-    for stimulus in stimuli {
-        add_stimulus(&mut circuit, stimulus);
-    }
+    add_stimuli(&mut circuit, stimuli);
     propagate_domains(&mut circuit, &IndexMap::new(), Some(&pin_domains));
     Ok(circuit)
 }
@@ -1293,25 +1291,27 @@ pub fn read_gsch(
     // named again after the children's module names
     let mut sources = Vec::new();
     for (module_index, circuit) in loaded.iter().chain(std::iter::once(&top)).enumerate() {
+        let stimuli = StimulusIndex::new(circuit);
         for (reference_index, reference) in
             modules[module_index].module_references.iter().enumerate()
         {
-            if let Some(stimulus) = crate::stimulus::stimulus_of(circuit, reference) {
+            if let Some(stimulus) = stimuli.of(reference) {
                 sources.push((module_index, reference_index, stimulus.clone()));
             }
         }
     }
     top.simulation = None;
+    let mut named_sources = Vec::new();
     for (module_index, reference_index, stimulus) in sources {
         let module = &mut modules[module_index];
         let module_name = module.name.clone();
-        let named = name_stimulus(
+        named_sources.push(name_stimulus(
             &module_name,
             &mut module.module_references[reference_index],
             stimulus,
-        );
-        add_stimulus(&mut top, named);
+        ));
     }
+    add_stimuli(&mut top, named_sources);
     top.modules = modules;
     top.ext_modules = ext_modules.into_values().collect();
     top.directives = directives;

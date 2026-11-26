@@ -11,8 +11,8 @@ use oxymorph_netlist::expression::{parameter_value, to_float, Dialect};
 use oxymorph_netlist::hdl::HdlOptions;
 use oxymorph_netlist::helpers::{net_map_to_connections, open_node, NetMap};
 use oxymorph_netlist::stimulus::{
-    self, attach, from_primitive, from_spectre, primitive, primitive_file, spectre_params,
-    spice_text, stimulus_of, verilog_value,
+    self, add_stimuli, add_stimulus, attach, from_primitive, from_spectre, primitive,
+    primitive_file, spectre_params, spice_text, stimulus_of, verilog_value,
 };
 use oxymorph_netlist::{
     parse_hspice, parse_spectre, parse_spectre_spice, parse_spice, parse_systemverilog, parse_vams,
@@ -343,6 +343,88 @@ fn verilog_a_uses_the_lrm_primitive_names() {
     let pwl_params: IndexMap<String, String> = pwl_params.into_iter().collect();
     assert_eq!(pwl_params["wave"], "'{0, 0, 1n, 1.8}");
     assert_eq!(from_primitive("resistor", &IndexMap::new(), None), None);
+}
+
+fn named_stimulus(name: &str, dc: &str) -> Stimulus {
+    Stimulus {
+        name: name.to_string(),
+        ..stim(Some(dc), None, None, None)
+    }
+}
+
+#[test]
+fn add_stimuli_is_add_stimulus_in_turn() {
+    let existing = vec![named_stimulus("a", "1"), named_stimulus("b", "2")];
+    let added = vec![
+        named_stimulus("c", "3"),
+        named_stimulus("a", "4"),
+        named_stimulus("c", "5"),
+    ];
+    let mut one_by_one = Circuit {
+        simulation: Some(oxymorph_schema::Simulation {
+            stimuli: existing,
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mut in_one_pass = one_by_one.clone();
+    for stimulus in added.clone() {
+        add_stimulus(&mut one_by_one, stimulus);
+    }
+    add_stimuli(&mut in_one_pass, added);
+    assert_eq!(in_one_pass, one_by_one);
+    let names: Vec<&str> = in_one_pass
+        .simulation
+        .as_ref()
+        .unwrap()
+        .stimuli
+        .iter()
+        .map(|stimulus| stimulus.name.as_str())
+        .collect();
+    assert_eq!(names, ["b", "a", "c"]);
+    let mut empty = Circuit::default();
+    add_stimuli(&mut empty, Vec::new());
+    assert_eq!(empty.simulation, None);
+}
+
+/// Writers look each source's stimulus up by name instead of scanning every stimulus.
+#[test]
+fn writers_are_linear_in_sources() {
+    const SOURCE_COUNT: usize = 20_000;
+    let mut module = Module {
+        name: "top".to_string(),
+        ..Default::default()
+    };
+    let mut stimuli = Vec::new();
+    for index in 0..SOURCE_COUNT {
+        let mut reference = ModuleReference {
+            name: format!("V{index}"),
+            module_name: "vsource".to_string(),
+            ..Default::default()
+        };
+        stimuli.push(stimulus::name_stimulus(
+            "top",
+            &mut reference,
+            stim(Some(&index.to_string()), None, None, None),
+        ));
+        module.module_references.push(reference);
+    }
+    let mut circuit = Circuit {
+        top_module: "top".to_string(),
+        modules: vec![module],
+        ..Default::default()
+    };
+    add_stimuli(&mut circuit, stimuli);
+    let started = std::time::Instant::now();
+    let writes = [
+        write_spice(&circuit),
+        write_spectre(&circuit),
+        write_vams(&circuit),
+        write_systemverilog(&circuit),
+    ];
+    assert!(started.elapsed() < std::time::Duration::from_secs(10));
+    let last = SOURCE_COUNT - 1;
+    assert!(writes[0].contains(&format!("\nV{last} nc_V{last}_p nc_V{last}_n DC {last}\n")));
 }
 
 #[test]

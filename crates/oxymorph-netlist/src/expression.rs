@@ -420,24 +420,26 @@ fn shortest(value: f64) -> String {
     }
 }
 
-/// Python's `f"{value:.12g}"` without exponent padding.
-fn twelve_significant_digits(value: f64) -> String {
+/// Python's `f"{value:.12g}"`, its exponent form written by `write_exponent(mantissa,
+/// exponent)` (`1e-6` here, Python's `1e-06` in SystemVerilog).
+pub fn twelve_significant_digits(value: f64, write_exponent: fn(&str, i32) -> String) -> String {
     const SIGNIFICANT_DIGITS: i32 = 12;
     let scientific = format!("{:.*e}", (SIGNIFICANT_DIGITS - 1) as usize, value);
     let (mantissa, exponent) = split_exponent(&scientific);
     if (-4..SIGNIFICANT_DIGITS).contains(&exponent) {
         let decimals = (SIGNIFICANT_DIGITS - 1 - exponent) as usize;
-        let fixed = format!("{value:.decimals$}");
-        if fixed.contains('.') {
-            fixed
-                .trim_end_matches('0')
-                .trim_end_matches('.')
-                .to_string()
-        } else {
-            fixed
-        }
+        trim_fraction_zeros(&format!("{value:.decimals$}"))
     } else {
-        join_exponent(mantissa, exponent)
+        write_exponent(mantissa, exponent)
+    }
+}
+
+/// `2.500` → `2.5`, `3.000` → `3`.
+pub fn trim_fraction_zeros(text: &str) -> String {
+    if text.contains('.') {
+        text.trim_end_matches('0').trim_end_matches('.').to_string()
+    } else {
+        text.to_string()
     }
 }
 
@@ -453,7 +455,7 @@ fn number(value: &PrefixedValue, dialect: Dialect) -> String {
     if value.prefix == Siprefix::Unspecified {
         shortest(plain)
     } else {
-        twelve_significant_digits(plain)
+        twelve_significant_digits(plain, join_exponent)
     }
 }
 

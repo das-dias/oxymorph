@@ -19,7 +19,7 @@ use super::{object, python_json, python_repr, python_str, JsonObject};
 use crate::error::Error;
 use crate::expression::{format_expression, Dialect};
 use crate::helpers::{connections_to_instance_nets, format_si_value};
-use crate::stimulus::stimulus_of;
+use crate::stimulus::StimulusIndex;
 
 /// Mosaic device symbol types (frontend/mosaic common.cljc `device-types`). Any other module
 /// is written as a `ckt` symbol whose `model` names it.
@@ -532,9 +532,11 @@ pub fn write_gsch(circuit: &Circuit) -> Result<String, Error> {
         members: IndexMap::new(),
         net_of: HashMap::new(),
     };
+    let stimuli = StimulusIndex::new(circuit);
     for reference in &module.module_references {
         let stash = stashes[&reference.name].as_ref();
-        let (key, entry) = instance_entry(circuit, reference, stash, &parsed, &pins, &mut written)?;
+        let (key, entry) =
+            instance_entry(&stimuli, reference, stash, &parsed, &pins, &mut written)?;
         out.insert(key, Value::Object(entry));
     }
 
@@ -585,7 +587,7 @@ pub fn write_gsch(circuit: &Circuit) -> Result<String, Error> {
 /// The entry (and its key) of one instance; `parsed` holds the stashes of the instances
 /// still on their parsed master.
 fn instance_entry(
-    circuit: &Circuit,
+    stimuli: &StimulusIndex,
     reference: &ModuleReference,
     stash: Option<&JsonObject>,
     parsed: &HashMap<String, JsonObject>,
@@ -722,7 +724,7 @@ fn instance_entry(
         };
         props.insert(prop, prop_value(&renamed, &stashed_props));
     }
-    if let Some(stimulus) = stimulus_of(circuit, reference) {
+    if let Some(stimulus) = stimuli.of(reference) {
         // also for a source from another format
         props = source_props(&reference.name, stimulus, &props)?;
     }

@@ -10,16 +10,19 @@ use regex::Regex;
 use crate::ast::{check_tree_depth, TreeTransform};
 use crate::engine::Engine;
 use crate::error::Error;
-use crate::expression::{expression_or_raw, format_expression, to_float, Dialect, Resolve};
+use crate::expression::{
+    expression_or_raw, format_expression, to_float, trim_fraction_zeros, twelve_significant_digits,
+    Dialect, Resolve,
+};
 use crate::hdl::*;
 use crate::helpers::{
     connections_to_instance_nets, domain_of, is_si_number, macro_lines, parse_parameter_number,
-    sim_params, MacroLanguage, NetMap,
+    pins_by_instance, pins_of, sim_params, MacroLanguage, NetMap,
 };
 use crate::preprocess::systemverilog::preprocess_systemverilog;
 use crate::stimulus::{
-    add_stimulus, from_primitive, name_stimulus, primitive, primitive_file, stimulus_keys,
-    stimulus_of,
+    add_stimuli, from_primitive, name_stimulus, primitive, primitive_file, stimulus_keys,
+    StimulusIndex,
 };
 
 const GRAMMAR: &str = include_str!("../../grammars/systemverilog.lark");
@@ -529,9 +532,7 @@ impl SystemVerilogTransformer<'_> {
             properties,
             ..Default::default()
         };
-        for stimulus in std::mem::take(&mut self.stimuli) {
-            add_stimulus(&mut circuit, stimulus);
-        }
+        add_stimuli(&mut circuit, std::mem::take(&mut self.stimuli));
         propagate_domains(
             &mut circuit,
             &self.options.disciplines,
@@ -1175,35 +1176,14 @@ pub fn parse_systemverilog(text: &str, options: &HdlOptions) -> Result<Circuit, 
 // Writer
 // ---------------------------------------------------------------------------
 
-/// Python's `f"{value:.12g}"`.
-fn general_twelve_digits(value: f64) -> String {
-    const SIGNIFICANT_DIGITS: i32 = 12;
-    if !value.is_finite() {
-        return format!("{value}");
-    }
-    let scientific = format!("{:.*e}", (SIGNIFICANT_DIGITS - 1) as usize, value);
-    let (mantissa, exponent) = scientific.split_once('e').expect("an exponent");
-    let exponent: i32 = exponent.parse().expect("an integer exponent");
-    if (-4..SIGNIFICANT_DIGITS).contains(&exponent) {
-        let decimals = (SIGNIFICANT_DIGITS - 1 - exponent) as usize;
-        trim_fraction_zeros(&format!("{value:.decimals$}"))
-    } else {
-        let sign = if exponent < 0 { '-' } else { '+' };
-        format!(
-            "{}e{sign}{:02}",
-            trim_fraction_zeros(mantissa),
-            exponent.abs()
-        )
-    }
-}
-
-/// `2.500` → `2.5`, `3.000` → `3`.
-fn trim_fraction_zeros(text: &str) -> String {
-    if text.contains('.') {
-        text.trim_end_matches('0').trim_end_matches('.').to_string()
-    } else {
-        text.to_string()
-    }
+/// Python's exponent form: `2.5e-07`, `1e+16`.
+fn python_exponent(mantissa: &str, exponent: i32) -> String {
+    let sign = if exponent < 0 { '-' } else { '+' };
+    format!(
+        "{}e{sign}{:02}",
+        trim_fraction_zeros(mantissa),
+        exponent.abs()
+    )
 }
 
 /// Plain number (SI suffixes are not SystemVerilog), else the expression text.
@@ -1212,7 +1192,7 @@ fn format_param_value(parameter: &Parameter, resolve: Option<Resolve>) -> String
         return "0".to_string();
     };
     if let Some(prefixed_value) = &value.prefixed_value {
-        return general_twelve_digits(to_float(prefixed_value));
+        return twelve_significant_digits(to_float(prefixed_value), python_exponent);
     }
     if let Some(expression) = &value.expression {
         let text = format_expression(expression, Dialect::SystemVerilog, resolve, false);
@@ -1275,11 +1255,13 @@ fn behavioral_blocks(properties: &Properties) -> Vec<&String> {
     blocks
 }
 
-/// Convert a circuit to structural SystemVerilog text.
 /// The macro languages SystemVerilog takes as body text.
 const MACRO_LANGUAGES: [MacroLanguage; 2] = [("systemverilog", None), ("verilog", None)];
 
+/// Convert a circuit to structural SystemVerilog text.
 pub fn write_systemverilog(circuit: &Circuit) -> String {
+    let masters = master_ports(circuit);
+    let stimuli = StimulusIndex::new(circuit);
     let mut lines: Vec<String> = Vec::new();
     write_directives(&circuit.directives, &mut lines);
     lines.extend(macro_lines(&circuit.macros, &MACRO_LANGUAGES, "//"));
@@ -1290,13 +1272,18 @@ pub fn write_systemverilog(circuit: &Circuit) -> String {
         if !lines.is_empty() {
             lines.push(String::new());
         }
-        write_module(module, circuit, &mut lines);
+        write_module(module, &masters, &stimuli, &mut lines);
     }
     lines.push(String::new());
     lines.join("\n")
 }
 
-fn write_module(module: &Module, circuit: &Circuit, lines: &mut Vec<String>) {
+fn write_module(
+    module: &Module,
+    masters: &MasterPorts,
+    stimuli: &StimulusIndex,
+    lines: &mut Vec<String>,
+) {
     let mut header_params = Vec::new();
     for parameter in &module.parameters {
         if !is_local(parameter) {
@@ -1382,8 +1369,17 @@ fn write_module(module: &Module, circuit: &Circuit, lines: &mut Vec<String>) {
     }
 
     let instance_nets = connections_to_instance_nets(&module.connections, "");
+    let instance_pins = pins_by_instance(&instance_nets);
     for reference in &module.module_references {
-        lines.push(write_instance(reference, circuit, &instance_nets, &buses));
+        let pins = pins_of(&instance_pins, &reference.name);
+        lines.push(write_instance(
+            reference,
+            stimuli,
+            masters,
+            pins,
+            &instance_nets,
+            &buses,
+        ));
     }
     for block in behavioral_blocks(&module.properties) {
         lines.push(format!("  {block}"));
@@ -1393,7 +1389,9 @@ fn write_module(module: &Module, circuit: &Circuit, lines: &mut Vec<String>) {
 
 fn write_instance(
     reference: &ModuleReference,
-    circuit: &Circuit,
+    stimuli: &StimulusIndex,
+    masters: &MasterPorts,
+    pins: &[&str],
     instance_nets: &IndexMap<(String, String), String>,
     buses: &Buses,
 ) -> String {
@@ -1408,7 +1406,7 @@ fn write_instance(
         ));
     }
     let mut master = reference.module_name.clone();
-    let stimulus = stimulus_of(circuit, reference);
+    let stimulus = stimuli.of(reference);
     if let Some(stimulus) = stimulus {
         // a Verilog-AMS LRM Annex E source primitive
         let current = reference.module_name == "isource";
@@ -1428,7 +1426,7 @@ fn write_instance(
         Some(file) => format!("(* pwl_file = \"{file}\" *) "),
         None => String::new(),
     };
-    let connections = port_connections(reference, circuit, instance_nets, buses, sv_name);
+    let connections = port_connections(reference, masters, pins, instance_nets, buses, sv_name);
     format!(
         "  {attribute}{}{params} {} ({connections});",
         sv_name(&master),

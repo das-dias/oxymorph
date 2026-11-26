@@ -937,6 +937,96 @@ fn writers_cap_untrusted_port_width() {
     assert!(vams.contains("cell u0 (.wide(), .huge());"), "{vams}");
 }
 
+/// IR from JSON: unconnected ports as wide as the cap cost nothing to write, since a port
+/// an instance has no pin on is not expanded bit by bit.
+#[test]
+fn writers_do_not_expand_unconnected_wide_ports() {
+    const PORT_COUNT: usize = 20;
+    const INSTANCE_COUNT: usize = 5;
+    let mut ports = Vec::new();
+    for port_index in 0..PORT_COUNT {
+        ports.push(format!(
+            r#"{{"name": "p{port_index}", "width": {MAX_EXPANDED_WIDTH}}}"#
+        ));
+    }
+    let mut references = Vec::new();
+    for instance_index in 0..INSTANCE_COUNT {
+        references.push(format!(
+            r#"{{"name": "x{instance_index}", "module_name": "foo"}}"#
+        ));
+    }
+    let json = format!(
+        r#"{{"top_module": "top",
+            "ext_modules": [{{"name": "foo", "ports": [{}]}}],
+            "modules": [{{"name": "top", "module_references": [{}]}}]}}"#,
+        ports.join(", "),
+        references.join(", ")
+    );
+    let circuit = Circuit::from_json(&json).unwrap();
+    let mut open_ports = Vec::new();
+    for port_index in 0..PORT_COUNT {
+        open_ports.push(format!(".p{port_index}()"));
+    }
+    let expected = format!("  foo x4 ({});", open_ports.join(", "));
+    let started = std::time::Instant::now();
+    let systemverilog = write_systemverilog(&circuit);
+    let vams = write_vams(&circuit);
+    assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    assert!(systemverilog.contains(&expected), "{systemverilog}");
+    assert!(vams.contains(&expected), "{vams}");
+}
+
+/// Every writer finds an instance's pins in a per-module map, not by scanning the
+/// connections, so a parsed instance array costs time linear in its size.
+#[test]
+fn writers_are_linear_in_instances() {
+    const INSTANCE_COUNT: usize = 20_000;
+    let text = format!(
+        "module top(input a); foo x[0:{}] (.p(a)); endmodule\n",
+        INSTANCE_COUNT - 1
+    );
+    let circuit = parse(&text);
+    let started = std::time::Instant::now();
+    let systemverilog = write_systemverilog(&circuit);
+    let vams = write_vams(&circuit);
+    let spice = write_spice(&circuit);
+    let spectre = write_spectre(&circuit);
+    assert!(started.elapsed() < std::time::Duration::from_secs(10));
+    let last = INSTANCE_COUNT - 1;
+    let hdl_line = format!("  foo \\x[{last}]  (.p(a));\n");
+    assert!(systemverilog.contains(&hdl_line));
+    assert!(vams.contains(&hdl_line));
+    assert!(spice.contains(&format!("\nx[{last}] a foo\n")));
+    assert!(spectre.contains(&format!("\nx[{last}] (a) foo\n")));
+}
+
+/// Bit indices of net names from JSON span all of i64: regrouping them into runs must not
+/// overflow (`a[i64::MIN]` next to `a[1]`).
+#[test]
+fn format_bits_takes_extreme_indices() {
+    let json = r#"{"top_module": "top", "modules": [{"name": "top",
+        "module_references": [{"name": "x", "module_name": "foo"}],
+        "connections": [
+            {"name": "a[-9223372036854775808]", "source": {"instance_name": "x", "port_name": "p[1]"},
+             "target": {"instance_name": "", "port_name": "a"}},
+            {"name": "a[1]", "source": {"instance_name": "x", "port_name": "p[0]"},
+             "target": {"instance_name": "", "port_name": "b"}},
+            {"name": "c[9223372036854775807]", "source": {"instance_name": "x", "port_name": "q[1]"},
+             "target": {"instance_name": "", "port_name": "c"}},
+            {"name": "c[-1]", "source": {"instance_name": "x", "port_name": "q[0]"},
+             "target": {"instance_name": "", "port_name": "d"}}
+        ]}]}"#;
+    let circuit = Circuit::from_json(json).unwrap();
+    let systemverilog = write_systemverilog(&circuit);
+    assert!(
+        systemverilog.contains(
+            "foo x (.p({a[-9223372036854775808], a[1]}), .q({c[9223372036854775807], c[-1]}));"
+        ),
+        "{systemverilog}"
+    );
+    write_vams(&circuit);
+}
+
 // ── test_systemverilog_writer.py ─────────────────────────────────────────
 
 const MZI: &str = "\

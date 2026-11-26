@@ -10,6 +10,7 @@
 //! the pins of one array connection) is capped at [`MAX_EXPANDED_WIDTH`], and one
 //! [`ExpansionBudget`] per parse bounds what a whole text expands to.
 
+use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
 
 use indexmap::IndexMap;
@@ -19,7 +20,7 @@ use oxymorph_schema::{
 use regex::Regex;
 
 use crate::error::Error;
-use crate::helpers::{domain_of, net_map_to_connections, open_node, NetMap, PinDomains};
+use crate::helpers::{domain_of, net_map_to_connections, open_node, pin_names, NetMap, PinDomains};
 
 /// The most bits (or instances) one expression, declaration or instance array expands to.
 pub const MAX_EXPANDED_WIDTH: usize = 1_000_000;
@@ -584,8 +585,8 @@ pub fn check_unique_ports(module: &str, port_names: &[String]) -> Result<(), Err
 }
 
 /// Charge the instances of one instance statement (`count` of them, an array or one):
-/// each costs itself, its master's port bits (a writer lists every one, connected or not)
-/// and its params.
+/// each costs itself, its master's port bits (a writer lists every bit of a port the
+/// instance connects, even partly) and its params.
 pub fn charge_instances(
     count: usize,
     port_ranges: Option<&IndexMap<String, Option<Range>>>,
@@ -740,17 +741,9 @@ pub fn format_bits(nets: &[String], buses: &Buses, escape: fn(&str) -> String) -
             continue;
         };
         if let Some(Part::Run(last_base, run)) = parts.last_mut() {
-            if last_base == base {
-                let last = run[run.len() - 1];
-                let step = if run.len() > 1 {
-                    last - run[run.len() - 2]
-                } else {
-                    index - last
-                };
-                if step.abs() == 1 && index == last + step {
-                    run.push(index);
-                    continue;
-                }
+            if last_base == base && continues_run(run, index) {
+                run.push(index);
+                continue;
             }
         }
         parts.push(Part::Run(base.to_string(), vec![index]));
@@ -780,6 +773,18 @@ pub fn format_bits(nets: &[String], buses: &Buses, escape: fn(&str) -> String) -
     }
 }
 
+/// Whether `index` extends `run` by one bit in its direction. In i128: a net name's index
+/// may be any i64, so the difference of two can overflow.
+fn continues_run(run: &[i64], index: i64) -> bool {
+    let last = i128::from(run[run.len() - 1]);
+    let step = if run.len() > 1 {
+        last - i128::from(run[run.len() - 2])
+    } else {
+        i128::from(index) - last
+    };
+    step.abs() == 1 && i128::from(index) == last + step
+}
+
 /// [`format_bits`] for one instance port; empty when it is unconnected. A bit of a partly
 /// connected bus port is written on its own open node (kfnetlist raises here).
 pub fn connection_expr(
@@ -802,62 +807,75 @@ pub fn connection_expr(
     format_bits(&connected, buses, escape)
 }
 
-/// `(port name, bit pins)` of the master's ports, or the pins the instance uses.
-// ponytail: writers stay infallible, so IR built from JSON costs at most
-// instances × MAX_EXPANDED_WIDTH pin names per port here (parsed text is charged for it
-// by `ExpansionBudget`); add a fallible `try_write_*` with a budget if that matters.
+/// Module or external module name → its ports; a module wins over an external module of
+/// the same name, and the first of two with one name wins.
+pub type MasterPorts<'a> = HashMap<&'a str, &'a [Port]>;
+
+/// [`MasterPorts`] of a circuit, built once per write.
+pub fn master_ports(circuit: &Circuit) -> MasterPorts<'_> {
+    let mut masters: MasterPorts = HashMap::new();
+    for module in &circuit.modules {
+        masters
+            .entry(module.name.as_str())
+            .or_insert(module.ports.as_slice());
+    }
+    for ext_module in &circuit.ext_modules {
+        masters
+            .entry(ext_module.name.as_str())
+            .or_insert(ext_module.ports.as_slice());
+    }
+    masters
+}
+
+/// `(port name, bit pins)` of the master's ports, or the pins the instance uses (`pins`,
+/// from [`crate::helpers::pins_by_instance`]). A port the instance has no pin on gets no
+/// bits, so it is written open (`.p()`) without expanding its width.
+// ponytail: writers stay infallible, so a wide bus port the instance connects only partly
+// still costs its MAX_EXPANDED_WIDTH bits per instance here (each open bit is written on
+// its own node); parsed text is charged for it by `ExpansionBudget`, IR from JSON is not.
+// Add a fallible `try_write_*` with a budget if that matters.
 pub fn port_order(
     reference: &ModuleReference,
-    circuit: &Circuit,
-    instance_nets: &IndexMap<(String, String), String>,
+    masters: &MasterPorts,
+    pins: &[&str],
 ) -> Vec<(String, Vec<String>)> {
-    let target_ports = circuit
-        .modules
-        .iter()
-        .find(|module| module.name == reference.module_name)
-        .map(|module| &module.ports)
-        .or_else(|| {
-            circuit
-                .ext_modules
-                .iter()
-                .find(|ext_module| ext_module.name == reference.module_name)
-                .map(|ext_module| &ext_module.ports)
-        });
-    if let Some(ports) = target_ports {
-        let mut order = Vec::new();
-        for port in ports {
+    let Some(ports) = masters.get(reference.module_name.as_str()) else {
+        return bus_pins(&pin_names(pins));
+    };
+    let mut touched: HashSet<&str> = HashSet::new();
+    for pin in pins {
+        touched.insert(pin);
+        touched.insert(bus_base(pin));
+    }
+    let mut order = Vec::new();
+    for port in *ports {
+        let bits = if touched.contains(port.name.as_str()) {
             let range_text = port.properties.get("range").map(String::as_str);
-            order.push((
-                port.name.clone(),
-                port_pins(&port.name, port.width, range_text),
-            ));
-        }
-        return order;
+            port_pins(&port.name, port.width, range_text)
+        } else {
+            Vec::new()
+        };
+        order.push((port.name.clone(), bits));
     }
-    let mut used = Vec::new();
-    for (instance, pin) in instance_nets.keys() {
-        if instance == &reference.name && !used.contains(pin) {
-            used.push(pin.clone());
-        }
-    }
-    bus_pins(&used)
+    order
 }
 
 /// `.port(expr)` connections of one instance, in port order.
 pub fn port_connections(
     reference: &ModuleReference,
-    circuit: &Circuit,
+    masters: &MasterPorts,
+    pins: &[&str],
     instance_nets: &IndexMap<(String, String), String>,
     buses: &Buses,
     port_name: fn(&str) -> String,
 ) -> String {
     let mut connections = Vec::new();
-    for (name, pins) in port_order(reference, circuit, instance_nets) {
+    for (name, port_bits) in port_order(reference, masters, pins) {
         let mut nets = Vec::new();
-        for pin in &pins {
+        for pin in &port_bits {
             nets.push(instance_nets.get(&(reference.name.clone(), pin.clone())));
         }
-        let expression = connection_expr(&reference.name, &pins, &nets, buses, sv_name);
+        let expression = connection_expr(&reference.name, &port_bits, &nets, buses, sv_name);
         connections.push(format!(".{}({expression})", port_name(&name)));
     }
     connections.join(", ")

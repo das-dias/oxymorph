@@ -232,7 +232,7 @@ b26cd6b, d5b82b2 (`decisions/0011`); `src/hdl.rs`, `src/formats/systemverilog.rs
   `max(1_000_000, 64 × input length in bytes)` units. It is charged for every declared
   bit, every connection pin an expression or array yields (resolved bits, broadcasts,
   replications, triples), every instance (itself, its master's port bits, which a
-  writer lists even when unconnected, and its params), and every byte `` `define ``
+  writer lists for every port the instance connects, even partly, and its params), and every byte `` `define ``
   expansion outputs. A parse tree nests at most `ast::MAX_TREE_DEPTH` (256) levels and
   procedural statements at most 128. Beyond any of these, the parse is
   `Error::Validation` (the budget's message names it).
@@ -242,9 +242,15 @@ b26cd6b, d5b82b2 (`decisions/0011`); `src/hdl.rs`, `src/formats/systemverilog.rs
 - Writers keep infallible signatures and trust the IR only up to the same cap: a port
   whose `properties["range"]` parses to more than 1,000,000 bits is written as a scalar,
   and so is one whose `width` does when it has no parseable range (an unparseable range
-  falls back to `width`); a range is never walked. IR built from
-  JSON can still cost up to instances × 1,000,000 pin names per port when written; a
-  fallible `try_write_*` would bound that.
+  falls back to `width`); a range is never walked. A port an instance has no pin on is
+  written `.p()` without expanding its bits. IR built from JSON can still cost up to
+  1,000,000 pin names per instance for each port it connects only partly; a fallible
+  `try_write_*` would bound that.
+- Writer cost is linear in references plus connections: every writer looks an
+  instance's pins up in one map per module (`helpers::pins_by_instance`), its master's
+  ports in one map per circuit (`hdl::master_ports`), and its stimulus in one index per
+  circuit (`stimulus::StimulusIndex`). The parsers add their stimuli in one pass
+  (`stimulus::add_stimuli`).
 
 ## R9. `.gsch` schematics
 

@@ -14,7 +14,7 @@ use crate::error::Error;
 use crate::expression::{expression_or_raw, parameter_value, value_text, Dialect, Resolve};
 use crate::helpers::*;
 use crate::preprocess::{preprocess_hspice, preprocess_spice, preprocess_xyce};
-use crate::stimulus::{self, add_stimulus, name_stimulus, spice_text, stimulus_of};
+use crate::stimulus::{self, add_stimuli, name_stimulus, spice_text, StimulusIndex};
 
 const GRAMMAR_SPICE: &str = include_str!("../../grammars/spice.lark");
 const GRAMMAR_HSPICE: &str = include_str!("../../grammars/hspice.lark");
@@ -1102,9 +1102,7 @@ impl SpiceTransformer {
             simulation,
             ..Default::default()
         };
-        for stimulus in std::mem::take(&mut self.stimuli) {
-            add_stimulus(&mut circuit, stimulus);
-        }
+        add_stimuli(&mut circuit, std::mem::take(&mut self.stimuli));
         Item::Circuit(circuit)
     }
 }
@@ -1197,8 +1195,8 @@ struct SpiceStyle<'a> {
     dialect: Dialect,
     params_keyword: &'static str,
     ground: &'a str,
-    /// The circuit being written: its simulation holds the sources' stimuli.
-    circuit: &'a Circuit,
+    /// The stimuli of the circuit being written, which its sources point to.
+    stimuli: StimulusIndex<'a>,
 }
 
 pub fn write_spice(circuit: &Circuit) -> String {
@@ -1220,7 +1218,7 @@ pub(crate) fn write_spice_dialect(
             .get("ground_net")
             .map(String::as_str)
             .unwrap_or(""),
-        circuit,
+        stimuli: StimulusIndex::new(circuit),
     };
     let mut lines: Vec<String> = Vec::new();
 
@@ -1342,10 +1340,12 @@ fn write_subckt(module: &Module, lookups: &Lookups, style: &SpiceStyle, lines: &
 
 fn instance_lines(module: &Module, lookups: &Lookups, style: &SpiceStyle) -> Vec<String> {
     let inst_nets = connections_to_instance_nets(&module.connections, style.ground);
+    let instance_pins = pins_by_instance(&inst_nets);
     let mut lines = Vec::new();
     for reference in &module.module_references {
         if !is_skipped(reference) {
-            lines.push(write_instance(reference, &inst_nets, lookups, style));
+            let pins = pins_of(&instance_pins, &reference.name);
+            lines.push(write_instance(reference, &inst_nets, pins, lookups, style));
         }
     }
     lines
@@ -1400,6 +1400,7 @@ fn nets_text(
 fn write_instance(
     r: &ModuleReference,
     inst_nets: &IndexMap<(String, String), String>,
+    pins: &[&str],
     lookups: &Lookups,
     style: &SpiceStyle,
 ) -> String {
@@ -1439,7 +1440,7 @@ fn write_instance(
             }
         }
 
-        if let Some(stimulus) = stimulus_of(style.circuit, r) {
+        if let Some(stimulus) = style.stimuli.of(r) {
             // parity: kf-stimuli
             value_str = spice_text(stimulus, style.dialect);
         }
@@ -1460,7 +1461,7 @@ fn write_instance(
     } else if let Some(em) = ext_mod {
         em.ports.iter().map(|p| p.name.clone()).collect()
     } else {
-        infer_port_order(r, inst_nets)
+        pin_names(pins)
     };
     // parity: kf-spice-writer-dialects (`X` prepended to a defined subckt's instance)
     let out_name = out_name(r, lookups);
@@ -1479,19 +1480,6 @@ fn write_instance(
     }
     parts.extend(params_parts);
     parts.join(" ")
-}
-
-fn infer_port_order(
-    r: &ModuleReference,
-    inst_nets: &IndexMap<(String, String), String>,
-) -> Vec<String> {
-    let mut port_names: Vec<String> = Vec::new();
-    for (iname, pname) in inst_nets.keys() {
-        if iname == &r.name && !port_names.contains(pname) {
-            port_names.push(pname.clone());
-        }
-    }
-    port_names
 }
 
 fn format_analysis(analysis: &Analysis) -> String {

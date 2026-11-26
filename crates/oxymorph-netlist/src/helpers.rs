@@ -1,6 +1,7 @@
 //! Shared helpers ported from `value_utils.py`, `net_utils.py` and
 //! `simulation_data.py`. Kept behaviourally identical to upstream.
 
+use std::collections::HashMap;
 use std::sync::OnceLock;
 
 use indexmap::IndexMap;
@@ -557,6 +558,38 @@ pub fn connections_to_instance_nets(
         }
     }
     mapping
+}
+
+/// Instance name → the pins it connects, in `instance_nets` order.
+pub type InstancePins<'a> = HashMap<&'a str, Vec<&'a str>>;
+
+/// [`InstancePins`] of a module's `instance_nets`. A writer builds it once per module, so
+/// finding an instance's pins never scans every connection of the module.
+pub fn pins_by_instance(instance_nets: &IndexMap<(String, String), String>) -> InstancePins<'_> {
+    let mut pins: InstancePins = HashMap::new();
+    for (instance, pin) in instance_nets.keys() {
+        pins.entry(instance.as_str())
+            .or_default()
+            .push(pin.as_str());
+    }
+    pins
+}
+
+/// The pins `instance` connects; empty when it has none.
+pub fn pins_of<'a>(instance_pins: &'a InstancePins<'a>, instance: &str) -> &'a [&'a str] {
+    match instance_pins.get(instance) {
+        Some(pins) => pins,
+        None => &[],
+    }
+}
+
+/// An instance's pins as owned names: its port order when its master is unknown.
+pub fn pin_names(pins: &[&str]) -> Vec<String> {
+    let mut names = Vec::new();
+    for pin in pins {
+        names.push(pin.to_string());
+    }
+    names
 }
 
 // ---------------------------------------------------------------------------

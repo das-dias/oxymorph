@@ -12,6 +12,7 @@
 //! Writers walk the args in [`waveform_args`] order: `Waveform.args` read back from
 //! protobuf has no order.
 
+use std::collections::HashMap;
 use std::sync::OnceLock;
 
 use indexmap::IndexMap;
@@ -156,6 +157,33 @@ pub fn stimulus_of<'a>(circuit: &'a Circuit, reference: &ModuleReference) -> Opt
         .find(|stimulus| &stimulus.name == name)
 }
 
+/// A circuit's stimuli by name, the first of two with one name, as [`stimulus_of`] finds
+/// them. A writer builds it once, so finding each instance's stimulus does not scan them all.
+pub struct StimulusIndex<'a> {
+    by_name: HashMap<&'a str, &'a Stimulus>,
+}
+
+impl<'a> StimulusIndex<'a> {
+    pub fn new(circuit: &'a Circuit) -> Self {
+        let mut by_name = HashMap::new();
+        if let Some(simulation) = &circuit.simulation {
+            for stimulus in &simulation.stimuli {
+                by_name.entry(stimulus.name.as_str()).or_insert(stimulus);
+            }
+        }
+        Self { by_name }
+    }
+
+    /// [`stimulus_of`] through the index.
+    pub fn of(&self, reference: &ModuleReference) -> Option<&'a Stimulus> {
+        let name = reference.properties.get("stimulus")?;
+        if name.is_empty() {
+            return None;
+        }
+        self.by_name.get(name.as_str()).copied()
+    }
+}
+
 /// Name `stimulus` after `reference` (an element of `module_name`) and point
 /// `reference` to it; parsers collect the result and [`add_stimulus`] it at the end.
 pub fn name_stimulus(
@@ -172,11 +200,29 @@ pub fn name_stimulus(
 
 /// Add a named stimulus to `circuit`, replacing one of the same name.
 pub fn add_stimulus(circuit: &mut Circuit, stimulus: Stimulus) {
+    add_stimuli(circuit, vec![stimulus]);
+}
+
+/// [`add_stimulus`] of each of `stimuli` in turn, in one pass: an existing stimulus is
+/// dropped when one of `stimuli` has its name, and one of `stimuli` is added when no later
+/// one has its name.
+pub fn add_stimuli(circuit: &mut Circuit, stimuli: Vec<Stimulus>) {
+    if stimuli.is_empty() {
+        return; // no `simulation` made for nothing
+    }
+    let mut last_index: HashMap<String, usize> = HashMap::new();
+    for (index, stimulus) in stimuli.iter().enumerate() {
+        last_index.insert(stimulus.name.clone(), index);
+    }
     let simulation = circuit.simulation.get_or_insert_with(Simulation::default);
     simulation
         .stimuli
-        .retain(|existing| existing.name != stimulus.name);
-    simulation.stimuli.push(stimulus);
+        .retain(|existing| !last_index.contains_key(&existing.name));
+    for (index, stimulus) in stimuli.into_iter().enumerate() {
+        if last_index.get(&stimulus.name) == Some(&index) {
+            simulation.stimuli.push(stimulus);
+        }
+    }
 }
 
 /// Record `stimulus` as what drives `reference` (an element of `module_name`).
