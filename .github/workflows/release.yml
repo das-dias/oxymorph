@@ -27,10 +27,16 @@ jobs:
         with:
           submodules: recursive
           persist-credentials: false
+      # cargo checks out lark-rs's JSONTestSuite submodule, whose paths pass Windows' 260 characters
+      - name: Allow long git paths (Windows)
+        if: runner.os == 'Windows'
+        run: git config --system core.longpaths true
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
       - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+        env:
+          CARGO_NET_GIT_FETCH_WITH_CLI: "true"
         with:
           target: ${{ matrix.target }}
           manylinux: ${{ matrix.manylinux }}
