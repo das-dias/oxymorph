@@ -1117,7 +1117,7 @@ impl TreeTransform for SystemVerilogTransformer<'_> {
                 let expressions: Vec<NetExpression> =
                     items.into_iter().map(expression_of).collect();
                 let mut merges = Vec::new();
-                for pair in expressions.chunks_exact(2) {
+                for pair in expressions.as_chunks::<2>().0 {
                     merges.push(pair.to_vec());
                 }
                 Item::Merges(merges)
