@@ -2,11 +2,27 @@ name: Release
 
 on:
   push:
+    branches: [main]
     tags: ["v*"]
+  # build (never publish) when a PR touches packaging, so a tag never finds a broken wheel
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - pyproject.toml
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # cargo fetches lark-rs (a git dependency) with the git CLI, so it honours core.longpaths
+  CARGO_NET_GIT_FETCH_WITH_CLI: "true"
 
 jobs:
   wheels:
@@ -19,35 +35,52 @@ jobs:
           - { name: linux-x86_64, runner: ubuntu-latest, target: x86_64-unknown-linux-gnu, manylinux: auto }
           - { name: linux-aarch64, runner: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, manylinux: auto }
           - { name: musllinux-x86_64, runner: ubuntu-latest, target: x86_64-unknown-linux-musl, manylinux: musllinux_1_2 }
-          - { name: macos-x86_64, runner: macos-latest, target: x86_64-apple-darwin, manylinux: "off" }
+          - { name: musllinux-aarch64, runner: ubuntu-24.04-arm, target: aarch64-unknown-linux-musl, manylinux: musllinux_1_2 }
+          - { name: macos-x86_64, runner: macos-15-intel, target: x86_64-apple-darwin, manylinux: "off" }
           - { name: macos-aarch64, runner: macos-latest, target: aarch64-apple-darwin, manylinux: "off" }
           - { name: windows-x64, runner: windows-latest, target: x86_64-pc-windows-msvc, manylinux: "off" }
+          # no CPython below 3.11 exists for Windows on Arm
+          - { name: windows-arm64, runner: windows-11-arm, target: aarch64-pc-windows-msvc, manylinux: "off", pythons: "3.11 3.14" }
     steps:
+      # before checkout: keep LF test data byte-identical, and fit lark-rs's deep submodule paths
+      - name: Configure git (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.longpaths true
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
           persist-credentials: false
-      # cargo checks out lark-rs's JSONTestSuite submodule, whose paths pass Windows' 260 characters
-      - name: Allow long git paths (Windows)
-        if: runner.os == 'Windows'
-        run: git config --system core.longpaths true
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
       - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
-        env:
-          CARGO_NET_GIT_FETCH_WITH_CLI: "true"
         with:
           target: ${{ matrix.target }}
           manylinux: ${{ matrix.manylinux }}
           args: --release --out dist
-      # a wheel the runner can run (not musl, not x86_64 on an arm64 macOS) must import
-      - name: Import the built wheel
-        if: matrix.name != 'musllinux-x86_64' && matrix.name != 'macos-x86_64'
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          enable-cache: false
+      # every wheel runs the full suite on the abi3 floor and the newest CPython, on its own machine
+      - name: Test the wheel
         shell: bash
+        env:
+          PYTHONS: ${{ matrix.pythons || '3.9 3.14' }}
+          MUSL: ${{ contains(matrix.target, 'musl') }}
         run: |
-          python -m pip install --no-index --find-links dist oxymorph
-          python -c "import oxymorph; oxymorph.parse_spice('R1 a b 1')"
+          for py in $PYTHONS; do
+            echo "::group::Python $py"
+            if [ "$MUSL" = true ]; then
+              docker run --rm -v "$PWD:/io" -w /io "python:$py-alpine" sh -c \
+                "pip install -q --no-index --find-links dist oxymorph && python -m unittest discover -s crates/oxymorph-python/tests"
+            else
+              uv run --isolated --no-project --python "$py" --no-index --find-links dist --with oxymorph \
+                python -m unittest discover -s crates/oxymorph-python/tests
+            fi
+            echo "::endgroup::"
+          done
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist-${{ matrix.name }}
@@ -64,6 +97,14 @@ jobs:
         with:
           command: sdist
           args: --out dist
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          enable-cache: false
+      # pip users on platforms without a wheel build from this, so it must build and pass
+      - name: Build and test from the sdist
+        run: |
+          uv run --isolated --no-project --python 3.14 --with dist/*.tar.gz \
+            python -m unittest discover -s crates/oxymorph-python/tests
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist-sdist

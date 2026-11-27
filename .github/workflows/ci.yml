@@ -4,34 +4,62 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  # cargo fetches lark-rs (a git dependency) with the git CLI, so it honours core.longpaths
+  CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+
 jobs:
-  rust:
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
           components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: |
+            .
+            crates/oxymorph-python
       - run: cargo fmt --all --check
+      - run: cargo fmt --manifest-path crates/oxymorph-python/Cargo.toml --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
-      - run: cargo test --workspace
+      - run: cargo clippy --manifest-path crates/oxymorph-python/Cargo.toml -- -D warnings
 
-  wasm:
-    runs-on: ubuntu-latest
+  rust:
+    name: rust (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest]
     steps:
+      # before checkout: keep LF test data byte-identical, and fit lark-rs's deep submodule paths
+      - name: Configure git (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.longpaths true
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
-        with:
-          targets: wasm32-unknown-unknown
-      - run: cargo build --manifest-path crates/oxymorph-wasm/Cargo.toml --target wasm32-unknown-unknown --release
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - run: cargo test --workspace
 
   features:
     runs-on: ubuntu-latest
@@ -41,13 +69,14 @@ jobs:
           submodules: recursive
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: Build each format feature alone
         run: |
           for feature in spice hspice xyce spectre spectre_spice vams systemverilog gsch; do
             cargo build -p oxymorph --no-default-features --features "$feature"
           done
 
-  python:
+  wasm:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -56,16 +85,51 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
-          components: rustfmt, clippy
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          python-version: "3.12"
+          workspaces: crates/oxymorph-wasm
+      - run: cargo build --manifest-path crates/oxymorph-wasm/Cargo.toml --target wasm32-unknown-unknown --release
+
+  python:
+    name: python ${{ matrix.python }} (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        # the abi3 floor (requires-python) and the newest CPython
+        python: ["3.9", "3.14"]
+    env:
+      UV_PYTHON: ${{ matrix.python }}
+    steps:
+      - name: Configure git (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.longpaths true
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: crates/oxymorph-python
       - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           enable-cache: false
-      - run: cargo fmt --manifest-path crates/oxymorph-python/Cargo.toml --check
-      - run: cargo clippy --manifest-path crates/oxymorph-python/Cargo.toml -- -D warnings
       - name: just test-python
+        shell: bash
         run: |
           uv sync --reinstall-package oxymorph
           uv run --no-sync python -m unittest discover -s crates/oxymorph-python/tests -v
+
+  # the one check to require in branch protection
+  ci-ok:
+    if: always()
+    needs: [lint, rust, features, wasm, python]
+    runs-on: ubuntu-latest
+    steps:
+      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1
