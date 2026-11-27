@@ -1,5 +1,9 @@
 # oxymorph
 
+[![CI](https://github.com/gdsfactory/oxymorph/actions/workflows/ci.yml/badge.svg)](https://github.com/gdsfactory/oxymorph/actions/workflows/ci.yml)
+[![Tests](https://github.com/gdsfactory/oxymorph/actions/workflows/tests.yml/badge.svg)](https://github.com/gdsfactory/oxymorph/actions/workflows/tests.yml)
+[![Release](https://github.com/gdsfactory/oxymorph/actions/workflows/release.yml/badge.svg)](https://github.com/gdsfactory/oxymorph/actions/workflows/release.yml)
+
 A Rust port of [morphnet](https://github.com/das-dias/morphnet): bidirectional
 SPICE-family and Verilog-AMS netlist parsing through a shared intermediate
 representation.
