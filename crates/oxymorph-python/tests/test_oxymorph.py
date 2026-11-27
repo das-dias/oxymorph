@@ -336,7 +336,9 @@ def test_repr_is_bounded():
     module.connections.append(module)
     assert repr(module) == "Module(name='m', connections=[Module(...)])"
     chain = oxymorph.Expression(reference="leaf")
-    for _ in range(5000):
+    # ponytail: well past MAX_NESTING, but freeing a #[pyclass] chain recurses natively and
+    # ~2000 levels overflow Windows' 1 MB stack; an iterative Drop would lift that limit
+    for _ in range(4 * oxymorph.MAX_NESTING):
         chain = oxymorph.Expression(unary=oxymorph.UnaryOp(op=oxymorph.Operator.NEG, operand=chain))
     text = repr(chain)
     assert text.startswith("Expression(unary=UnaryOp(") and "Expression(...)" in text
