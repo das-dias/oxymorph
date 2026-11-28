@@ -24,3 +24,44 @@ Documentation = "https://gdsfactory.github.io/oxymorph/"
 manifest-path = "crates/oxymorph-python/Cargo.toml"
 module-name = "oxymorph"
 features = ["pyo3/extension-module"]
+
+# fragments in changelog/ build into CHANGELOG.md: `uvx towncrier build --version X.Y.Z` at release
+[tool.towncrier]
+name = "oxymorph"
+filename = "CHANGELOG.md"
+directory = "changelog"
+template = "towncrier:default.md"
+title_format = "## oxymorph {version} ({project_date})"
+issue_format = "[#{issue}](https://github.com/gdsfactory/oxymorph/issues/{issue})"
+underlines = ["", "", ""]
+orphan_prefix = "+"
+
+[[tool.towncrier.type]]
+directory = "feat"
+name = "Features"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "fix"
+name = "Bug Fixes"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "perf"
+name = "Performance Improvements"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "refactor"
+name = "Refactoring"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "docs"
+name = "Documentation"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "removal"
+name = "Removals & Deprecations"
+showcontent = true
